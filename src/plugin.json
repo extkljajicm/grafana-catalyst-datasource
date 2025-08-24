@@ -1,15 +1,36 @@
 {
-  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
-  "type": "datasource",
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json
+","type": "datasource",
   "name": "Catalyst-Datasource",
   "id": "grafana-catalyst-datasource",
   "metrics": true,
+  "annotations": false,
+  "routes": [
+    {
+      "path": "dnac",
+      "url": "${jsonData.baseUrl}",
+      "headers": [
+        {
+          "name": "X-Auth-Token",
+          "value": "${secureJsonData.apiToken}"
+        }
+      ]
+    }
+  ],
+  "jsonData": {
+    "baseUrl": ""
+  },
+  "secureJsonData": {
+    "apiToken": ""
+  },
   "info": {
     "description": "",
     "author": {
       "name": "Grafana"
     },
-    "keywords": ["datasource"],
+    "keywords": [
+      "datasource"
+    ],
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
@@ -22,5 +43,6 @@
   "dependencies": {
     "grafanaDependency": ">=10.4.0",
     "plugins": []
-  }
+  },
+  "signature": "unsigned"
 }

@@ -1,69 +1,82 @@
 import React, { ChangeEvent } from 'react';
 import { InlineField, Input, SecretInput } from '@grafana/ui';
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { MyDataSourceOptions, MySecureJsonData } from '../types';
+import { CatalystJsonData, CatalystSecureJsonData } from '../types';
 
-interface Props extends DataSourcePluginOptionsEditorProps<MyDataSourceOptions, MySecureJsonData> {}
+type Props = DataSourcePluginOptionsEditorProps<CatalystJsonData, CatalystSecureJsonData>;
 
 export function ConfigEditor(props: Props) {
   const { onOptionsChange, options } = props;
   const { jsonData, secureJsonFields, secureJsonData } = options;
 
-  const onPathChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const onBaseUrlChange = (event: ChangeEvent<HTMLInputElement>) => {
     onOptionsChange({
       ...options,
       jsonData: {
         ...jsonData,
-        path: event.target.value,
+        baseUrl: event.target.value,
       },
     });
   };
 
-  // Secure field (only sent to the backend)
-  const onAPIKeyChange = (event: ChangeEvent<HTMLInputElement>) => {
+  // Secure field (only stored server-side)
+  const onApiTokenChange = (event: ChangeEvent<HTMLInputElement>) => {
     onOptionsChange({
       ...options,
       secureJsonData: {
-        apiKey: event.target.value,
+        apiToken: event.target.value,
       },
     });
   };
 
-  const onResetAPIKey = () => {
+  const onResetApiToken = () => {
     onOptionsChange({
       ...options,
       secureJsonFields: {
         ...options.secureJsonFields,
-        apiKey: false,
+        apiToken: false,
       },
       secureJsonData: {
         ...options.secureJsonData,
-        apiKey: '',
+        apiToken: '',
       },
     });
   };
 
   return (
     <>
-      <InlineField label="Path" labelWidth={14} interactive tooltip={'Json field returned to frontend'}>
+      <InlineField
+        label="Base URL"
+        labelWidth={14}
+        interactive
+        tooltip={
+          'Catalyst Center API base URL.\nExample: https://dnac.example.com/dna/intent/api/v1'
+        }
+      >
         <Input
-          id="config-editor-path"
-          onChange={onPathChange}
-          value={jsonData.path}
-          placeholder="Enter the path, e.g. /api/v1"
-          width={40}
+          id="config-editor-base-url"
+          onChange={onBaseUrlChange}
+          value={jsonData.baseUrl || ''}
+          placeholder="https://dnac.example.com/dna/intent/api/v1"
+          width={50}
         />
       </InlineField>
-      <InlineField label="API Key" labelWidth={14} interactive tooltip={'Secure json field (backend only)'}>
+
+      <InlineField
+        label="API Token"
+        labelWidth={14}
+        interactive
+        tooltip={'X-Auth-Token used for Catalyst Center requests (stored securely on the server).'}
+      >
         <SecretInput
           required
-          id="config-editor-api-key"
-          isConfigured={secureJsonFields.apiKey}
-          value={secureJsonData?.apiKey}
-          placeholder="Enter your API key"
-          width={40}
-          onReset={onResetAPIKey}
-          onChange={onAPIKeyChange}
+          id="config-editor-api-token"
+          isConfigured={Boolean(secureJsonFields?.apiToken)}
+          value={secureJsonData?.apiToken || ''}
+          placeholder="Enter your X-Auth-Token"
+          width={50}
+          onReset={onResetApiToken}
+          onChange={onApiTokenChange}
         />
       </InlineField>
     </>

@@ -1,50 +1,76 @@
-<!-- This README file is going to be the one displayed on the Grafana.com website for your plugin. Uncomment and replace the content here before publishing.
+# Grafana Catalyst Datasource
 
-Remove any remaining comments before publishing as these may be displayed on Grafana.com -->
+![Build](https://github.com/extkljajicm/grafana-catalyst-datasource/actions/workflows/ci.yml/badge.svg?branch=main)
 
-# Catalyst-Datasource
+The **Grafana Catalyst Datasource** lets you query **Cisco Catalyst Center (DNA Center)** alerts directly from Grafana dashboards.
 
-<!-- To help maximize the impact of your README and improve usability for users, we propose the following loose structure:
+---
 
-**BEFORE YOU BEGIN**
-- Ensure all links are absolute URLs so that they will work when the README is displayed within Grafana and Grafana.com
-- Be inspired ✨
-  - [grafana-polystat-panel](https://github.com/grafana/grafana-polystat-panel)
-  - [volkovlabs-variable-panel](https://github.com/volkovlabs/volkovlabs-variable-panel)
+## Features
 
-**ADD SOME BADGES**
+- Fetch Catalyst Center alerts via the REST API
+- Filter by severity, status, and free-text
+- Display results in tables or time series panels
+- Use in Grafana variables (e.g., severities, statuses)
+- Supports secure token storage (`X-Auth-Token`)
 
-Badges convey useful information at a glance for users whether in the Catalog or viewing the source code. You can use the generator on [Shields.io](https://shields.io/badges/dynamic-json-badge) together with the Grafana.com API
-to create dynamic badges that update automatically when you publish a new version to the marketplace.
-
-- For the URL parameter use `https://grafana.com/api/plugins/your-plugin-id`.
-- Example queries:
-  - Downloads: `$.downloads`
-  - Catalog Version: `$.version`
-  - Grafana Dependency: `$.grafanaDependency`
-  - Signature Type: `$.versionSignatureType`
-- Optionally, for the logo parameter use `grafana`.
-
-Full example: ![Dynamic JSON Badge](https://img.shields.io/badge/dynamic/json?logo=grafana&query=$.version&url=https://grafana.com/api/plugins/grafana-polystat-panel&label=Marketplace&prefix=v&color=F47A20)
-
-Consider other [badges](https://shields.io/badges) as you feel appropriate for your project.
-
-## Overview / Introduction
-Provide one or more paragraphs as an introduction to your plugin to help users understand why they should use it.
-
-Consider including screenshots:
-- in [plugin.json](https://grafana.com/developers/plugin-tools/reference/plugin-json#info) include them as relative links.
-- in the README ensure they are absolute URLs.
+---
 
 ## Requirements
-List any requirements or dependencies they may need to run the plugin.
+
+- Grafana **v10.4.0+** (v12 recommended)
+- Cisco Catalyst Center (DNA Center) with API access
+- An API token (`X-Auth-Token`) with permission to query alerts
+
+---
 
 ## Getting Started
-Provide a quick start on how to configure and use the plugin.
 
-## Documentation
-If your project has dedicated documentation available for users, provide links here. For help in following Grafana's style recommendations for technical documentation, refer to our [Writer's Toolkit](https://grafana.com/docs/writers-toolkit/).
+1. Install the plugin into Grafana’s plugins directory or build from source.
+2. In Grafana, go to **Connections → Data sources → Add data source**.
+3. Choose **Catalyst-Datasource**.
+4. Configure:
+   - **Base URL**: e.g. `https://dnac.example.com/dna/intent/api/v1`
+   - **API Token**: Catalyst Center `X-Auth-Token`
+5. Save & Test. You should see a success message.
+6. Add a panel, select this datasource, and run a query.
 
-## Contributing
-Do you want folks to contribute to the plugin or provide feedback through specific means? If so, tell them how!
--->
+---
+
+## Example Query
+
+Filter alerts in the last 24h:
+
+- **Severity**: `P1,P2`
+- **Status**: `ACTIVE`
+- **Text**: `Switch`
+
+Results show as a table with columns:
+`Time`, `ID`, `Title`, `Severity`, `Status`, `Category`, `Device`, `Site`, `Rule`, `Details`.
+
+---
+
+## Development
+
+```bash
+npm install
+npm run dev   # watch mode
+npm run build # production build
+```
+
+Start Grafana with:
+```bash
+docker compose up --build
+```
+
+In `grafana.ini`, allow unsigned plugins during development:
+```ini
+[plugins]
+allow_loading_unsigned_plugins = grafana-catalyst-datasource
+```
+
+---
+
+## License
+
+Apache-2.0 © extkljajicm

@@ -1,43 +1,78 @@
-import React, { ChangeEvent } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { InlineField, Input, Stack } from '@grafana/ui';
 import { QueryEditorProps } from '@grafana/data';
 import { DataSource } from '../datasource';
-import { MyDataSourceOptions, MyQuery } from '../types';
+import { CatalystQuery, CatalystJsonData } from '../types';
 
-type Props = QueryEditorProps<DataSource, MyQuery, MyDataSourceOptions>;
+type Props = QueryEditorProps<DataSource, CatalystQuery, CatalystJsonData>;
+
+// Simple debounce hook
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(handle);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export function QueryEditor({ query, onChange, onRunQuery }: Props) {
-  const onQueryTextChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...query, queryText: event.target.value });
-  };
+  // Local UI state for debouncing
+  const [severity, setSeverity] = useState(query.severity ?? '');
+  const [status, setStatus] = useState(query.status ?? '');
+  const [text, setText] = useState(query.text ?? '');
+  const [limit, setLimit] = useState(query.limit ?? 100);
 
-  const onConstantChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...query, constant: parseFloat(event.target.value) });
-    // executes the query
+  const debouncedSeverity = useDebounced(severity, 400);
+  const debouncedStatus = useDebounced(status, 400);
+  const debouncedText = useDebounced(text, 400);
+  const debouncedLimit = useDebounced(limit, 400);
+
+  // Push debounced values into the query + trigger run
+  useEffect(() => {
+    onChange({ ...query, severity: debouncedSeverity, status: debouncedStatus, text: debouncedText, limit: debouncedLimit });
     onRunQuery();
-  };
+  }, [debouncedSeverity, debouncedStatus, debouncedText, debouncedLimit]);
 
-  const { queryText, constant } = query;
+  const handleChange = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<string | number>>) => (e: ChangeEvent<HTMLInputElement>) => {
+      setter(e.currentTarget.value);
+    },
+    []
+  );
 
   return (
-    <Stack gap={0}>
-      <InlineField label="Constant">
+    <Stack gap={1}>
+      <InlineField label="Severity" labelWidth={14} tooltip="Comma-separated severities (e.g. P1,P2,P3)">
         <Input
-          id="query-editor-constant"
-          onChange={onConstantChange}
-          value={constant}
-          width={8}
-          type="number"
-          step="0.1"
+          value={severity}
+          onChange={handleChange(setSeverity)}
+          placeholder="P1,P2,P3"
+          width={20}
         />
       </InlineField>
-      <InlineField label="Query Text" labelWidth={16} tooltip="Not used yet">
+      <InlineField label="Status" labelWidth={14} tooltip="Comma-separated statuses (e.g. ACTIVE,CLEARED)">
         <Input
-          id="query-editor-query-text"
-          onChange={onQueryTextChange}
-          value={queryText || ''}
-          required
-          placeholder="Enter a query"
+          value={status}
+          onChange={handleChange(setStatus)}
+          placeholder="ACTIVE,CLEARED"
+          width={20}
+        />
+      </InlineField>
+      <InlineField label="Text" labelWidth={14} tooltip="Free-text search filter">
+        <Input
+          value={text}
+          onChange={handleChange(setText)}
+          placeholder="search text…"
+          width={40}
+        />
+      </InlineField>
+      <InlineField label="Limit" labelWidth={14} tooltip="Maximum alerts to fetch">
+        <Input
+          type="number"
+          value={limit}
+          onChange={(e) => setLimit(Number(e.currentTarget.value) || 100)}
+          width={10}
         />
       </InlineField>
     </Stack>

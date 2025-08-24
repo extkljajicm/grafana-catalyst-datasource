@@ -16,8 +16,6 @@ release/
 # Node dependencies
 node_modules/
 
-# GitHub CI caches/configs (keep workflows tracked elsewhere)
-.github/
 
 # Yarn
 .yarn/cache

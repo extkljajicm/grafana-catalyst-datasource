@@ -1,6 +1,16 @@
 {
-  "name": "catalyst-datasource",
+  "name": "grafana-catalyst-datasource",
   "version": "1.0.0",
+  "description": "Grafana datasource plugin for querying Cisco Catalyst Center alerts via API.",
+  "keywords": [
+    "grafana",
+    "plugin",
+    "datasource",
+    "catalyst",
+    "cisco",
+    "dnac",
+    "alerts"
+  ],
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
@@ -13,7 +23,7 @@
     "server": "docker compose up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest"
   },
-  "author": "Grafana",
+  "author": "extkljajicm",
   "license": "Apache-2.0",
   "devDependencies": {
     "@grafana/eslint-config": "^8.0.0",
