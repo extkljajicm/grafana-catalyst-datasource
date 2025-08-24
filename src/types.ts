@@ -2,40 +2,58 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
 
 /**
  * Query types supported by this datasource.
- * Keep lean for MVP: just "alerts".
+ * Keep lean for MVP: just "alerts" (DNAC issues).
  */
 export type QueryType = 'alerts';
 
 /**
  * Panel query model (frontend <-> datasource).
  * All fields are optional except `queryType`.
+ *
+ * Notes:
+ * - DNAC /dna/intent/api/v1/issues accepts:
+ *   startTime(ms), endTime(ms), siteId, deviceId, macAddress,
+ *   priority(P1..P4), issueStatus(ACTIVE|IGNORED|RESOLVED), aiDriven(YES|NO)
+ *
+ * - The legacy fields (severity/status/text) are kept for backward-compat
+ *   and may be mapped internally to DNAC params where it makes sense.
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
 
+  /** DNAC filters */
+  siteId?: string;
+  deviceId?: string;
+  macAddress?: string;
+  priority?: string;      // e.g., "P1,P2" or "P3"
+  issueStatus?: string;   // e.g., "ACTIVE", "IGNORED", "RESOLVED"
+  aiDriven?: string;      // "YES" | "NO"
+
   /**
-   * Comma-separated list of severities.
-   * Example: "P1,P2,P3"
+   * Maximum number of issues to return (panel-side cap, independent of paging).
+   * Server pages are fetched in chunks (e.g., 100).
+   */
+  limit?: number;
+
+  /** ------------------------------------------------------------------
+   *  Legacy/Generic fields (kept for compatibility with earlier drafts)
+   * ------------------------------------------------------------------ */
+  /**
+   * @deprecated prefer `priority`
+   * Comma-separated list of severities. Example: "P1,P2,P3"
    */
   severity?: string;
 
   /**
-   * Comma-separated list of statuses.
-   * Example: "ACTIVE,CLEARED"
+   * @deprecated prefer `issueStatus`
+   * Comma-separated list of statuses. Example: "ACTIVE,CLEARED"
    */
   status?: string;
 
   /**
-   * Optional free-text filter.
-   * For MVP we’ll pass this as a generic text filter (you can later
-   * repurpose it for site/device/category once we lock your DNAC schema).
+   * @deprecated DNAC does not have a generic text filter here; keep only if you map it yourself.
    */
   text?: string;
-
-  /**
-   * Maximum number of alerts to return (after pagination/merge).
-   */
-  limit?: number;
 }
 
 /**
@@ -47,20 +65,24 @@ export const DEFAULT_QUERY: Partial<CatalystQuery> = {
 };
 
 /**
- * Optional shape we normalize alert rows to when building data frames.
+ * Normalized row shape used when building data frames.
  * (Not required by Grafana, but useful for internal typing/mapping.)
  */
 export interface CatalystAlertRow {
-  time: number;         // epoch ms
+  time: number;     // epoch ms
   id: string;
   title: string;
-  severity: string;
-  status: string;
+  severity: string; // maps from DNAC "priority" where available
+  status: string;   // maps from DNAC "issueStatus"
   category?: string;
   device?: string;
   site?: string;
   rule?: string;
   details?: string;
+
+  // DNAC-specific convenience fields
+  mac?: string;
+  priority?: string; // original DNAC priority value (P1..P4)
 }
 
 /**
@@ -88,10 +110,11 @@ export interface CatalystSecureJsonData {
 
 /**
  * (Optional) Variable/templating query model.
- * Keep minimal for now; we can extend as we add dropdowns.
+ * Keep minimal for now; extend as needed for dropdowns.
  */
 export type CatalystVariableQuery =
-  | { type: 'severities' }
-  | { type: 'statuses' }
+  | { type: 'priorities' }
+  | { type: 'issueStatuses' }
   | { type: 'sites'; search?: string }
-  | { type: 'devices'; search?: string };
+  | { type: 'devices'; search?: string }
+  | { type: 'macs'; search?: string };
