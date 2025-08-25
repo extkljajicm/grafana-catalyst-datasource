@@ -1,6 +1,6 @@
 {
   "name": "grafana-catalyst-datasource",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Grafana datasource plugin for querying Cisco Catalyst Center alerts via API.",
   "keywords": [
     "grafana",
