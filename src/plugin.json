@@ -1,6 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json
-","type": "datasource",
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
   "name": "Catalyst-Datasource",
   "id": "grafana-catalyst-datasource",
   "metrics": true,
@@ -17,20 +17,12 @@
       ]
     }
   ],
-  "jsonData": {
-    "baseUrl": ""
-  },
-  "secureJsonData": {
-    "apiToken": ""
-  },
   "info": {
-    "description": "",
+    "description": "Grafana datasource for Cisco Catalyst Center (DNAC) issues/alerts via the REST API.",
     "author": {
       "name": "Grafana"
     },
-    "keywords": [
-      "datasource"
-    ],
+    "keywords": ["datasource", "cisco", "catalyst", "dnac", "alerts", "issues"],
     "logos": {
       "small": "img/logo.svg",
       "large": "img/logo.svg"
@@ -41,8 +33,7 @@
     "updated": "%TODAY%"
   },
   "dependencies": {
-    "grafanaDependency": ">=10.4.0",
+    "grafanaDependency": ">=12.1.0",
     "plugins": []
-  },
-  "signature": "unsigned"
+  }
 }

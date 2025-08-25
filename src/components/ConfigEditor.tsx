@@ -1,84 +1,68 @@
 import React, { ChangeEvent } from 'react';
-import { InlineField, Input, SecretInput } from '@grafana/ui';
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
+import { Field, Input, Button } from '@grafana/ui';
 import { CatalystJsonData, CatalystSecureJsonData } from '../types';
 
 type Props = DataSourcePluginOptionsEditorProps<CatalystJsonData, CatalystSecureJsonData>;
 
-export function ConfigEditor(props: Props) {
-  const { onOptionsChange, options } = props;
-  const { jsonData, secureJsonFields, secureJsonData } = options;
+export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
+  const jsonData = options.jsonData || {};
+  const secureJsonData = options.secureJsonData || {};
+  const secureJsonFields = options.secureJsonFields || {};
 
-  const onBaseUrlChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const onBaseUrlChange = (e: ChangeEvent<HTMLInputElement>) => {
     onOptionsChange({
       ...options,
-      jsonData: {
-        ...jsonData,
-        baseUrl: event.target.value,
-      },
+      jsonData: { ...jsonData, baseUrl: e.currentTarget.value },
     });
   };
 
-  // Secure field (only stored server-side)
-  const onApiTokenChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const onApiTokenChange = (e: ChangeEvent<HTMLInputElement>) => {
     onOptionsChange({
       ...options,
-      secureJsonData: {
-        apiToken: event.target.value,
-      },
+      secureJsonData: { ...secureJsonData, apiToken: e.currentTarget.value },
     });
   };
 
-  const onResetApiToken = () => {
+  const onResetToken = () => {
     onOptionsChange({
       ...options,
-      secureJsonFields: {
-        ...options.secureJsonFields,
-        apiToken: false,
-      },
-      secureJsonData: {
-        ...options.secureJsonData,
-        apiToken: '',
-      },
+      secureJsonFields: { ...secureJsonFields, apiToken: false },
+      secureJsonData: { ...secureJsonData, apiToken: '' },
     });
   };
 
   return (
     <>
-      <InlineField
-        label="Base URL"
-        labelWidth={14}
-        interactive
-        tooltip={
-          'Catalyst Center API base URL.\nExample: https://dnac.example.com/dna/intent/api/v1'
-        }
-      >
+      <Field label="Catalyst Base URL" description="Example: https://dnac.example.com/dna/intent/api/v1">
         <Input
-          id="config-editor-base-url"
+          value={jsonData.baseUrl ?? ''}
           onChange={onBaseUrlChange}
-          value={jsonData.baseUrl || ''}
           placeholder="https://dnac.example.com/dna/intent/api/v1"
-          width={50}
+          width={60}
         />
-      </InlineField>
+      </Field>
 
-      <InlineField
+      <Field
         label="API Token"
-        labelWidth={14}
-        interactive
-        tooltip={'X-Auth-Token used for Catalyst Center requests (stored securely on the server).'}
+        description="Catalyst Center X-Auth-Token; stored securely."
       >
-        <SecretInput
-          required
-          id="config-editor-api-token"
-          isConfigured={Boolean(secureJsonFields?.apiToken)}
-          value={secureJsonData?.apiToken || ''}
-          placeholder="Enter your X-Auth-Token"
-          width={50}
-          onReset={onResetApiToken}
-          onChange={onApiTokenChange}
-        />
-      </InlineField>
+        {secureJsonFields.apiToken ? (
+          <div className="gf-form">
+            <Button variant="secondary" onClick={onResetToken}>
+              Reset saved token
+            </Button>
+          </div>
+        ) : (
+          <Input
+            value={secureJsonData.apiToken ?? ''}
+            onChange={onApiTokenChange}
+            type="password"
+            placeholder="Paste token"
+            width={60}
+          />
+        )}
+      </Field>
     </>
   );
-}
+};

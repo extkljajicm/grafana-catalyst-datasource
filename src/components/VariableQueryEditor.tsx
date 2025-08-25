@@ -1,130 +1,114 @@
 import React, { useMemo } from 'react';
-import { InlineField, InlineFieldRow, Input, Select, TextArea } from '@grafana/ui';
-import type { SelectableValue, VariableQueryEditorProps } from '@grafana/data';
+import { InlineField, InlineFieldRow, Input, Select } from '@grafana/ui';
+import type { SelectableValue } from '@grafana/data';
+import type { CatalystVariableQuery } from '../types';
 
-/**
- * Shape we store inside the variable's "Query options" UI.
- * You can tweak/extend this to match your datasource's needs.
- */
-export type CatalystVariableQuery = {
-  mode?: 'raw' | 'labelValues';
-  // raw
-  query?: string;
-  // labelValues helper
-  metric?: string;
-  label?: string;
+type VarQEProps = {
+  query: CatalystVariableQuery | undefined;
+  onChange: (query: CatalystVariableQuery, definition?: string) => void;
 };
 
-const MODE_OPTIONS: Array<SelectableValue<CatalystVariableQuery['mode']>> = [
-  { label: 'Raw (passed to metricFindQuery)', value: 'raw' },
-  { label: 'Label values helper', value: 'labelValues' },
+type QType = CatalystVariableQuery['type'];
+
+const TYPE_OPTIONS: Array<SelectableValue<QType>> = [
+  { label: 'Priorities (P1..P4)', value: 'priorities' },
+  { label: 'Issue Statuses', value: 'issueStatuses' },
+  { label: 'Sites', value: 'sites' },
+  { label: 'Devices', value: 'devices' },
+  { label: 'MACs', value: 'macs' },
 ];
 
-/**
- * Variable Query Editor
- * - "raw": whatever you type is sent as-is to metricFindQuery(query)
- * - "labelValues": builds a definition like `label_values(<metric>, <label>)`
- *
- * Make sure this editor is wired in module.ts:
- *   plugin.setVariableQueryEditor(VariableQueryEditor)
- */
-export function VariableQueryEditor(
-  props: VariableQueryEditorProps<any, CatalystVariableQuery>
-): JSX.Element {
-  const { query, onChange } = props;
-  const value: CatalystVariableQuery = query ?? { mode: 'raw', query: '' };
-  const mode: CatalystVariableQuery['mode'] = value.mode ?? 'raw';
+function getType(q?: CatalystVariableQuery): QType {
+  if (!q) return 'priorities';
+  return q.type;
+}
+
+function getSearch(q?: CatalystVariableQuery): string {
+  if (!q) return '';
+  switch (q.type) {
+    case 'sites':
+    case 'devices':
+    case 'macs':
+      return q.search ?? '';
+    default:
+      return '';
+  }
+}
+
+function buildQuery(t: QType, search?: string): CatalystVariableQuery {
+  switch (t) {
+    case 'priorities':
+      return { type: 'priorities' };
+    case 'issueStatuses':
+      return { type: 'issueStatuses' };
+    case 'sites':
+      return { type: 'sites', search: (search ?? '').trim() || undefined };
+    case 'devices':
+      return { type: 'devices', search: (search ?? '').trim() || undefined };
+    case 'macs':
+      return { type: 'macs', search: (search ?? '').trim() || undefined };
+  }
+}
+
+function definitionFor(q: CatalystVariableQuery): string {
+  switch (q.type) {
+    case 'priorities':
+      return 'priorities()';
+    case 'issueStatuses':
+      return 'issueStatuses()';
+    case 'sites':
+      return q.search ? `sites(search:"${q.search}")` : 'sites()';
+    case 'devices':
+      return q.search ? `devices(search:"${q.search}")` : 'devices()';
+    case 'macs':
+      return q.search ? `macs(search:"${q.search}")` : 'macs()';
+  }
+}
+
+export function VariableQueryEditor({ query, onChange }: VarQEProps): JSX.Element {
+  const selectedType = getType(query);
+  const search = getSearch(query);
 
   const definition = useMemo(() => {
-    if (mode === 'labelValues') {
-      const m = value.metric?.trim() ?? '';
-      const l = value.label?.trim() ?? '';
-      if (m && l) {
-        return `label_values(${m}, ${l})`;
-      }
-      if (m) {
-        return `label_values(${m}, <label>)`;
-      }
-      return 'label_values(<metric>, <label>)';
-    }
-    // raw
-    return (value.query ?? '').trim();
-  }, [mode, value.metric, value.label, value.query]);
+    return definitionFor(buildQuery(selectedType, search));
+  }, [selectedType, search]);
 
-  const update = (patch: Partial<CatalystVariableQuery>) => {
-    const next = { ...value, ...patch };
-    // Recompute a human-friendly definition string Grafana displays under the variable.
-    const def =
-      next.mode === 'labelValues'
-        ? (() => {
-            const m = next.metric?.trim() ?? '';
-            const l = next.label?.trim() ?? '';
-            if (m && l) {
-              return `label_values(${m}, ${l})`;
-            }
-            if (m) {
-              return `label_values(${m}, <label>)`;
-            }
-            return 'label_values(<metric>, <label>)';
-          })()
-        : (next.query ?? '').trim();
+  const updateType = (t: QType) => {
+    const next = buildQuery(t, search);
+    onChange(next, definitionFor(next));
+  };
 
-    onChange(next, def);
+  const updateSearch = (s: string) => {
+    const next = buildQuery(selectedType, s);
+    onChange(next, definitionFor(next));
   };
 
   return (
     <div className="gf-form-group">
       <InlineFieldRow>
-        <InlineField label="Mode" grow={true}>
-          <Select
-            options={MODE_OPTIONS}
-            value={MODE_OPTIONS.find((o) => o.value === mode) ?? MODE_OPTIONS[0]}
-            onChange={(v) => update({ mode: v.value ?? 'raw' })}
-            aria-label="Variable query mode"
+        <InlineField label="Type" grow>
+          <Select<QType>
+            options={TYPE_OPTIONS}
+            value={TYPE_OPTIONS.find((o) => o.value === selectedType) ?? TYPE_OPTIONS[0]}
+            onChange={(v) => updateType((v.value ?? 'priorities') as QType)}
           />
         </InlineField>
       </InlineFieldRow>
 
-      {mode === 'raw' && (
-        <>
-          <InlineFieldRow>
-            <InlineField label="Query" grow={true} tooltip="This value is passed directly to metricFindQuery(query)">
-              <TextArea
-                value={value.query ?? ''}
-                onChange={(e) => update({ query: e.currentTarget.value })}
-                placeholder="e.g. services | jsonpath '$[*].name'"
-                rows={4}
-              />
-            </InlineField>
-          </InlineFieldRow>
-        </>
-      )}
-
-      {mode === 'labelValues' && (
-        <>
-          <InlineFieldRow>
-            <InlineField label="Metric" grow={true} tooltip="The metric/series to inspect for label values">
-              <Input
-                value={value.metric ?? ''}
-                onChange={(e) => update({ metric: e.currentTarget.value })}
-                placeholder="e.g. http_requests_total"
-              />
-            </InlineField>
-          </InlineFieldRow>
-          <InlineFieldRow>
-            <InlineField label="Label" grow={true} tooltip="The label key to return values for">
-              <Input
-                value={value.label ?? ''}
-                onChange={(e) => update({ label: e.currentTarget.value })}
-                placeholder="e.g. instance"
-              />
-            </InlineField>
-          </InlineFieldRow>
-        </>
+      {(selectedType === 'sites' || selectedType === 'devices' || selectedType === 'macs') && (
+        <InlineFieldRow>
+          <InlineField label="Search" grow tooltip="Optional contains filter; supports variables.">
+            <Input
+              value={search}
+              onChange={(e) => updateSearch(e.currentTarget.value)}
+              placeholder="e.g. branch-a, 00:11:22"
+            />
+          </InlineField>
+        </InlineFieldRow>
       )}
 
       <InlineFieldRow>
-        <InlineField label="Definition" grow={true} tooltip="Preview of the definition Grafana shows for this variable">
+        <InlineField label="Definition" grow tooltip="Preview of the variable definition shown by Grafana">
           <Input value={definition} readOnly />
         </InlineField>
       </InlineFieldRow>
