@@ -3,30 +3,15 @@
   "type": "datasource",
   "name": "Catalyst-Datasource",
   "id": "grafana-catalyst-datasource",
+  "backend": true,
+  "executable": "grafana-catalyst-datasource",
   "metrics": true,
   "annotations": false,
-  "routes": [
-    {
-      "path": "dnac",
-      "url": "${jsonData.baseUrl}",
-      "headers": [
-        {
-          "name": "X-Auth-Token",
-          "value": "${secureJsonData.apiToken}"
-        }
-      ]
-    }
-  ],
   "info": {
     "description": "Grafana datasource for Cisco Catalyst Center (DNAC) issues/alerts via the REST API.",
-    "author": {
-      "name": "Grafana"
-    },
+    "author": { "name": "extkljajicm" },
     "keywords": ["datasource", "cisco", "catalyst", "dnac", "alerts", "issues"],
-    "logos": {
-      "small": "img/logo.svg",
-      "large": "img/logo.svg"
-    },
+    "logos": { "small": "img/logo.svg", "large": "img/logo.svg" },
     "links": [],
     "screenshots": [],
     "version": "%VERSION%",
