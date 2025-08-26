@@ -1,7 +1,6 @@
 import { DataSourceWithBackend } from '@grafana/runtime';
 import type { CoreApp, DataSourceInstanceSettings, MetricFindValue } from '@grafana/data';
-import type { CatalystQuery, CatalystJsonData, CatalystVariableQuery } from './types';
-import { DEFAULT_QUERY as DEFAULTS } from './types';
+import { DEFAULT_QUERY as DEFAULTS, type CatalystQuery, type CatalystJsonData, type CatalystVariableQuery } from './types';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
 
@@ -75,7 +74,7 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
       // DataSourceWithBackend#getResource returns a Promise in Grafana 12
       const data: any = await this.getResource<any>(`issues?${params.toString()}`);
       const arr: any[] = Array.isArray(data) ? data : (data?.response ?? []);
-      if (!arr.length) break;
+      if (!arr.length) {break;}
 
       for (const it of arr) {
         for (const k of keys) {
@@ -90,7 +89,7 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
         }
       }
 
-      if (arr.length < PAGE_SIZE) break;
+      if (arr.length < PAGE_SIZE) {break;}
       offset += PAGE_SIZE;
     }
 

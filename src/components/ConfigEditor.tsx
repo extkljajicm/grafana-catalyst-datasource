@@ -1,13 +1,12 @@
 import React, { ChangeEvent } from 'react';
 import type { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { Field, Input, SecretInput, Stack, InlineField, InlineFieldRow, Alert } from '@grafana/ui';
+import { Field, Input, SecretInput, Stack, InlineField, InlineFieldRow, Alert, Switch } from '@grafana/ui';
 import type { CatalystJsonData } from '../types';
 
-// We store username/password/token in secureJsonData
 type SecureShape = {
   username?: string;
   password?: string;
-  apiToken?: string; // optional manual override
+  apiToken?: string;
 };
 
 type Props = DataSourcePluginOptionsEditorProps<CatalystJsonData, SecureShape>;
@@ -21,13 +20,9 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
   const setSecure = (patch: Partial<SecureShape>) =>
     onOptionsChange({ ...options, secureJsonData: { ...(secureJsonData ?? {}), ...patch } });
 
-  // Base URL
   const onBaseUrl = (e: ChangeEvent<HTMLInputElement>) => setJson({ baseUrl: e.currentTarget.value });
-
-  // Username
   const onUser = (e: ChangeEvent<HTMLInputElement>) => setSecure({ username: e.currentTarget.value });
 
-  // Password (secure)
   const onPass = (e: ChangeEvent<HTMLInputElement>) => setSecure({ password: e.currentTarget.value });
   const onResetPass = () =>
     onOptionsChange({
@@ -36,7 +31,6 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       secureJsonData: { ...(secureJsonData ?? {}), password: '' },
     });
 
-  // Optional token override
   const onToken = (e: ChangeEvent<HTMLInputElement>) => setSecure({ apiToken: e.currentTarget.value });
   const onResetToken = () =>
     onOptionsChange({
@@ -44,6 +38,8 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       secureJsonFields: { ...(secureJsonFields ?? {}), apiToken: false },
       secureJsonData: { ...(secureJsonData ?? {}), apiToken: '' },
     });
+
+  const onToggleInsecure = (v: boolean) => setJson({ insecureSkipVerify: v });
 
   return (
     <Stack gap={2}>
@@ -56,18 +52,19 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
         />
       </Field>
 
+      <InlineFieldRow>
+        <InlineField label="Skip TLS verification" tooltip="Disable TLS cert verification (use only for self‑signed certs in lab)">
+          <Switch value={!!jsonData?.insecureSkipVerify} onChange={(e) => onToggleInsecure(e.currentTarget.checked)} />
+        </InlineField>
+      </InlineFieldRow>
+
       <Alert title="Auth model" severity="info">
         Backend logs in with username/password to fetch a short‑lived X‑Auth‑Token. You can also paste a token manually (override).
       </Alert>
 
       <InlineFieldRow>
         <InlineField label="Username" grow>
-          <Input
-            value={secureJsonData?.username ?? ''}
-            onChange={onUser}
-            placeholder="dnac-api-user"
-            width={40}
-          />
+          <Input value={secureJsonData?.username ?? ''} onChange={onUser} placeholder="dnac-api-user" width={40} />
         </InlineField>
       </InlineFieldRow>
 

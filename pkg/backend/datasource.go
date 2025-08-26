@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,8 +18,7 @@ import (
 )
 
 type Datasource struct {
-	http *http.Client
-	tm   *tokenManager
+	tm *tokenManager
 }
 
 type dsInstance struct {
@@ -28,9 +28,16 @@ type dsInstance struct {
 
 func NewDatasource() *Datasource {
 	return &Datasource{
-		http: &http.Client{Timeout: 30 * time.Second},
-		tm:   newTokenManager(),
+		tm: newTokenManager(),
 	}
+}
+
+// Build an HTTP client honoring InsecureSkipVerify for this instance.
+func (d *Datasource) httpClientFor(s *InstanceSettings) *http.Client {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.InsecureSkipVerify}, //nolint:gosec
+	}
+	return &http.Client{Timeout: 30 * time.Second, Transport: tr}
 }
 
 // ---- helpers to read instance settings directly from PluginContext ----
@@ -60,11 +67,11 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		return nil, err
 	}
 	settings := inst.Settings
+	httpClient := d.httpClientFor(settings)
 
 	for _, q := range req.Queries {
 		dr := backend.DataResponse{}
 
-		// Parse the query JSON
 		var qm QueryModel
 		if err := json.Unmarshal(q.JSON, &qm); err != nil {
 			dr.Error = fmt.Errorf("invalid query model: %w", err)
@@ -72,7 +79,6 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			continue
 		}
 		if strings.TrimSpace(qm.QueryType) != "alerts" {
-			// Return empty frame for non-alerts
 			dr.Frames = append(dr.Frames, data.NewFrame(q.RefID))
 			resp.Responses[q.RefID] = dr
 			continue
@@ -98,13 +104,13 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			params.Set("macAddress", s)
 		}
 		if s := strings.TrimSpace(qm.Priority); s != "" {
-			params.Set("priority", s) // P1,P2,P3,P4
+			params.Set("priority", s)
 		}
 		if s := strings.TrimSpace(qm.IssueStatus); s != "" {
-			params.Set("issueStatus", s) // ACTIVE, IGNORED, RESOLVED
+			params.Set("issueStatus", s)
 		}
 		if s := strings.TrimSpace(qm.AIDriven); s != "" {
-			params.Set("aiDriven", s) // YES/NO
+			params.Set("aiDriven", s)
 		}
 
 		pageSize := 100
@@ -138,8 +144,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				params.Set("limit", strconv.Itoa(pageSize))
 			}
 
-			// Ensure token
-			token, err := d.tm.getToken(ctx, inst.UID, settings)
+			// Ensure token (using the same TLS behavior)
+			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
 			if err != nil {
 				dr.Error = fmt.Errorf("token: %w", err)
 				break
@@ -149,7 +155,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 			httpReq.Header.Set("X-Auth-Token", token)
 
-			httpResp, err := d.http.Do(httpReq)
+			httpResp, err := httpClient.Do(httpReq)
 			if err != nil {
 				dr.Error = fmt.Errorf("issues request failed: %w", err)
 				break
@@ -158,17 +164,16 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			httpResp.Body.Close()
 
 			if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
-				// refresh token and retry once
 				log.DefaultLogger.Warn("Unauthorized; refreshing token and retrying")
 				d.tm.set(inst.UID, "") // force refresh
-				token, err = d.tm.getToken(ctx, inst.UID, settings)
+				token, err = d.tm.getToken(ctx, inst.UID, settings, httpClient)
 				if err != nil {
 					dr.Error = fmt.Errorf("token refresh: %w", err)
 					break
 				}
 				httpReq, _ = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 				httpReq.Header.Set("X-Auth-Token", token)
-				httpResp, err = d.http.Do(httpReq)
+				httpResp, err = httpClient.Do(httpReq)
 				if err != nil {
 					dr.Error = fmt.Errorf("issues request retry failed: %w", err)
 					break
@@ -182,7 +187,6 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				break
 			}
 
-			// Accept either {response: []} or raw array
 			var env IssuesEnvelope
 			var arr []map[string]any
 			if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
@@ -295,16 +299,17 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 			Message: "instance error: " + err.Error(),
 		}, nil
 	}
+	settings := inst.Settings
+	httpClient := d.httpClientFor(settings)
 
-	// Ensure token
-	if _, err := d.tm.getToken(ctx, inst.UID, inst.Settings); err != nil {
+	if _, err := d.tm.getToken(ctx, inst.UID, settings, httpClient); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: "token: " + err.Error(),
 		}, nil
 	}
 
-	issuesURL, err := IssuesURL(inst.Settings.BaseURL)
+	issuesURL, err := IssuesURL(settings.BaseURL)
 	if err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
@@ -314,10 +319,10 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 
 	u := issuesURL + "?limit=1&offset=0&startTime=0&endTime=1"
 	reqHTTP, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	tok, _ := d.tm.getToken(ctx, inst.UID, inst.Settings)
+	tok, _ := d.tm.getToken(ctx, inst.UID, settings, httpClient)
 	reqHTTP.Header.Set("X-Auth-Token", tok)
 
-	httpResp, err := d.http.Do(reqHTTP)
+	httpResp, err := httpClient.Do(reqHTTP)
 	if err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
@@ -339,7 +344,7 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 	}, nil
 }
 
-// ---- CallResource (/resources/issues passthrough) ----
+// ---- CallResource passthrough (honors TLS flag as well) ----
 
 func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	inst, err := getInstanceFromPluginContext(req.PluginContext)
@@ -349,10 +354,12 @@ func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResource
 			Body:   []byte("instance error: " + err.Error()),
 		})
 	}
+	settings := inst.Settings
+	httpClient := d.httpClientFor(settings)
 
 	switch req.Path {
 	case "issues":
-		return d.resourceIssues(ctx, inst, req, sender)
+		return d.resourceIssues(ctx, inst, req, sender, httpClient)
 	default:
 		return sender.Send(&backend.CallResourceResponse{
 			Status: http.StatusNotFound,
@@ -361,13 +368,13 @@ func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResource
 	}
 }
 
-func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, httpClient *http.Client) error {
 	issuesURL, err := IssuesURL(inst.Settings.BaseURL)
 	if err != nil {
 		return sender.Send(&backend.CallResourceResponse{Status: http.StatusBadRequest, Body: []byte("bad baseUrl")})
 	}
 
-	// req.URL is a string in your SDK; parse it to extract query string
+	// req.URL is a string; parse to extract query string
 	var rawQuery string
 	if req.URL != "" {
 		if u, err := url.Parse(req.URL); err == nil {
@@ -381,13 +388,13 @@ func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *
 	}
 
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, issuesURL+q, nil)
-	tok, err := d.tm.getToken(ctx, inst.UID, inst.Settings)
+	tok, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
 	if err != nil {
 		return sender.Send(&backend.CallResourceResponse{Status: http.StatusUnauthorized, Body: []byte("token: " + err.Error())})
 	}
 	httpReq.Header.Set("X-Auth-Token", tok)
 
-	httpResp, err := d.http.Do(httpReq)
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return sender.Send(&backend.CallResourceResponse{Status: http.StatusBadGateway, Body: []byte("request failed: " + err.Error())})
 	}
@@ -401,7 +408,7 @@ func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *
 	})
 }
 
-// ---- small helpers ----
+// ---- helpers ----
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

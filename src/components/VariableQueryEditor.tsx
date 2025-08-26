@@ -19,12 +19,12 @@ const TYPE_OPTIONS: Array<SelectableValue<QType>> = [
 ];
 
 function getType(q?: CatalystVariableQuery): QType {
-  if (!q) return 'priorities';
+  if (!q) {return 'priorities';}
   return q.type;
 }
 
 function getSearch(q?: CatalystVariableQuery): string {
-  if (!q) return '';
+  if (!q) {return '';}
   switch (q.type) {
     case 'sites':
     case 'devices':

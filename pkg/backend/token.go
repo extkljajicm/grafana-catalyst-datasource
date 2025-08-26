@@ -9,39 +9,36 @@ import (
 	"sync"
 	"time"
 
-	sdklog "github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	log "github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
 type tokenManager struct {
-	mu     sync.Mutex
-	cache  map[string]tokenEntry // key: instance UID
-	client *http.Client
+	mu    sync.Mutex
+	cache map[string]tokenEntry // key: instance UID
 }
 
 func newTokenManager() *tokenManager {
 	return &tokenManager{
-		cache:  make(map[string]tokenEntry),
-		client: &http.Client{Timeout: 15 * time.Second},
+		cache: make(map[string]tokenEntry),
 	}
 }
 
-func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *InstanceSettings) (string, error) {
-	// Manual override
+func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *InstanceSettings, client *http.Client) (string, error) {
+	// manual override
 	if t := strings.TrimSpace(s.APIToken); t != "" {
 		return t, nil
 	}
 
-	now := time.Now()
+	now := time.Now().Unix()
 
 	tm.mu.Lock()
-	if e, ok := tm.cache[instanceUID]; ok && now.Before(e.ExpiresAt) && e.Token != "" {
+	if e, ok := tm.cache[instanceUID]; ok && now < e.ExpiresAt && strings.TrimSpace(e.Token) != "" {
 		t := e.Token
 		tm.mu.Unlock()
 		return t, nil
 	}
 	tm.mu.Unlock()
 
-	// Need to fetch
 	if s.Username == "" || s.Password == "" {
 		return "", errors.New("no username/password provided; cannot obtain token")
 	}
@@ -55,10 +52,9 @@ func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *Ins
 	if err != nil {
 		return "", err
 	}
-	// DNA Center token endpoint expects Basic Auth
 	req.SetBasicAuth(s.Username, s.Password)
 
-	resp, err := tm.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -68,37 +64,37 @@ func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *Ins
 		return "", errors.New("token endpoint returned non-2xx: " + resp.Status)
 	}
 
-	// DNAC often returns token in header "X-Auth-Token"
+	// Prefer header
 	if v := resp.Header.Get("X-Auth-Token"); strings.TrimSpace(v) != "" {
 		tm.set(instanceUID, v)
 		return v, nil
 	}
 
-	// Some versions return {"Token": "..."} or {"token": "..."}
+	// Fallback to body
 	var body struct {
-		Token string `json:"Token"`
+		Token  string `json:"Token"`
 		Token2 string `json:"token"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&body)
-	token := strings.TrimSpace(body.Token)
-	if token == "" {
-		token = strings.TrimSpace(body.Token2)
+	tok := strings.TrimSpace(body.Token)
+	if tok == "" {
+		tok = strings.TrimSpace(body.Token2)
 	}
-	if token == "" {
-		sdklog.DefaultLogger.Warn("DNAC token not found in header or JSON body")
+	if tok == "" {
+		log.DefaultLogger.Warn("DNAC token not found in header or JSON body")
 		return "", errors.New("token not found in response")
 	}
 
-	tm.set(instanceUID, token)
-	return token, nil
+	tm.set(instanceUID, tok)
+	return tok, nil
 }
 
 func (tm *tokenManager) set(uid, token string) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	// Soft TTL 55 minutes
+	// TTL: 55 minutes
 	tm.cache[uid] = tokenEntry{
 		Token:     token,
-		ExpiresAt: time.Now().Add(55 * time.Minute),
+		ExpiresAt: time.Now().Add(55 * time.Minute).Unix(),
 	}
 }
