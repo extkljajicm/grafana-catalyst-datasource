@@ -43,85 +43,92 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
 
   return (
     <Stack gap={3}>
-      {/* -------- Server -------- */}
-      <div className="gf-form-group">
-        <h3 className="page-heading">Server</h3>
-        <Field label="Catalyst Base URL" description="Example: https://dnac.example.com/dna/intent/api/v1">
-          <Input
-            value={jsonData?.baseUrl ?? ''}
-            onChange={onBaseUrl}
-            placeholder="https://<host>/dna/intent/api/v1"
-            width={60}
-          />
-        </Field>
-      </div>
+      {/* Two-column responsive layout */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 16,
+        }}
+      >
+        {/* -------- Left column: Server + TLS -------- */}
+        <div className="gf-form-group">
+          <h3 className="page-heading">Server</h3>
+          <Field label="Catalyst Base URL">
+            <Input
+              value={jsonData?.baseUrl ?? ''}
+              onChange={onBaseUrl}
+              placeholder="https://<host>/dna/intent/api/v1"
+              width={60}
+            />
+          </Field>
 
-      {/* -------- Authentication (collapsible) -------- */}
-      <div className="gf-form-group">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 className="page-heading" style={{ margin: 0 }}>Authentication</h3>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => setAuthOpen((v) => !v)}
-            aria-expanded={authOpen}
-            aria-controls="auth-section"
-          >
-            {authOpen ? 'Hide' : 'Show'}
-          </button>
-        </div>
-
-        {authOpen && (
-          <div id="auth-section" style={{ marginTop: 8 }}>
-            <Alert title="Auth model" severity="info">
-              Backend logs in with username/password to fetch a short-lived X-Auth-Token.
-              You can also paste a token manually (override).
-            </Alert>
-
-            <Field label="Username" description="Catalyst Center API user">
-              <Input value={secureJsonData?.username ?? ''} onChange={onUser} placeholder="dnac-api-user" width={40} />
-            </Field>
-
-            <Field label="Password" description="Stored securely by Grafana">
-              <SecretInput
-                isConfigured={!!secureJsonFields?.password}
-                value={secureJsonData?.password}
-                onChange={onPass}
-                onReset={onResetPass}
-                placeholder="••••••••"
-                width={40}
-              />
-            </Field>
-
-            <Field
-              label="API Token (override)"
-              description="Paste an existing X-Auth-Token to bypass username/password login (optional)."
-            >
-              <SecretInput
-                isConfigured={!!secureJsonFields?.apiToken}
-                value={secureJsonData?.apiToken}
-                onChange={onToken}
-                onReset={onResetToken}
-                placeholder="Optional: paste existing X-Auth-Token"
-                width={60}
+          {/* TLS switch directly under the URL (no description text) */}
+          <div style={{ marginTop: 12 }}>
+            <Field label="Skip TLS verification">
+              <Switch
+                value={!!jsonData?.insecureSkipVerify}
+                onChange={(e) => setJson({ insecureSkipVerify: e.currentTarget.checked })}
               />
             </Field>
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* -------- Security -------- */}
-      <div className="gf-form-group">
-        <h3 className="page-heading">Security</h3>
-        <Field
-          label="Skip TLS verification"
-          description="Disable TLS certificate verification (use only with self-signed certs in lab/test)."
-        >
-          <Switch
-            value={!!jsonData?.insecureSkipVerify}
-            onChange={(e) => setJson({ insecureSkipVerify: e.currentTarget.checked })}
-          />
-        </Field>
+        {/* -------- Right column: Authentication (collapsible) -------- */}
+        <div className="gf-form-group">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 className="page-heading" style={{ margin: 0 }}>Authentication</h3>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setAuthOpen((v) => !v)}
+              aria-expanded={authOpen}
+              aria-controls="auth-section"
+            >
+              {authOpen ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {authOpen && (
+            <div id="auth-section" style={{ marginTop: 8 }}>
+              <Alert title="Auth model" severity="info">
+                Backend logs in with username/password to fetch a short-lived X-Auth-Token.
+                You can also paste a token manually (override).
+              </Alert>
+
+              <Field label="Username">
+                <Input
+                  value={secureJsonData?.username ?? ''}
+                  onChange={onUser}
+                  placeholder="dnac-api-user"
+                  width={40}
+                />
+              </Field>
+
+              <Field label="Password">
+                <SecretInput
+                  isConfigured={!!secureJsonFields?.password}
+                  value={secureJsonData?.password}
+                  onChange={onPass}
+                  onReset={onResetPass}
+                  placeholder="••••••••"
+                  width={40}
+                />
+              </Field>
+
+              <Field label="API Token (override)">
+                <SecretInput
+                  isConfigured={!!secureJsonFields?.apiToken}
+                  value={secureJsonData?.apiToken}
+                  onChange={onToken}
+                  onReset={onResetToken}
+                  placeholder="Optional: paste existing X-Auth-Token"
+                  width={60}
+                />
+              </Field>
+            </div>
+          )}
+        </div>
       </div>
     </Stack>
   );
