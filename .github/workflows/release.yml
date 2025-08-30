@@ -1,4 +1,4 @@
-name: Release (manual package)
+name: Release (auto publish)
 
 on:
   push:
@@ -59,6 +59,7 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
+          sudo apt-get update -y && sudo apt-get install -y jq
           test -f dist/plugin.json || { echo "dist/plugin.json missing"; ls -la dist || true; exit 1; }
           cat dist/plugin.json
           PLUGIN_ID=$(jq -r .id dist/plugin.json)
@@ -77,10 +78,15 @@ jobs:
           zip -r "${PLUGIN_ID}-${VERSION}.zip" "$PLUGIN_ID"
           sha1sum "${PLUGIN_ID}-${VERSION}.zip" | cut -f1 -d' ' > "${PLUGIN_ID}-${VERSION}.zip.sha1"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
         with:
-          name: plugin-zip
-          path: |
+          draft: false   # set to 'true' to create a draft instead
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: "Automated build for ${{ github.ref_name }}"
+          files: |
             ${{ steps.meta.outputs.plugin-id }}-${{ steps.meta.outputs.plugin-version }}.zip
             ${{ steps.meta.outputs.plugin-id }}-${{ steps.meta.outputs.plugin-version }}.zip.sha1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
