@@ -1,3 +1,15 @@
+## [1.0.5] - 2025-08-31
+### Changed
+- CI: Auto-create GitHub Release and upload plugin ZIP via `softprops/action-gh-release`.
+- CI: Make packaging explicit and deterministic:
+  - `npm ci` + `npm run build` to ensure `dist/` and transformed `dist/plugin.json`
+  - `go run github.com/magefile/mage -v BuildAll` to build backend binaries
+  - ZIP + `.sha1` produced and attached to the Release
+- CI: Keep tag-based version injection; run with Node 22 / Go 1.21.
+
+### Build
+- Magefile: build **only `linux/amd64`**, preserve `dist/` assets, and include a no-op `Coverage()` target to satisfy CI.
+
 ## [1.0.4] - 2025-08-30
 ### Added
 - Backend: add **Magefile.go** to cross‑compile backend binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, and `windows/amd64`.
