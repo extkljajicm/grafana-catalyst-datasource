@@ -9,43 +9,50 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
 )
 
-// Executable name must match plugin.json 'backend.executable'
+// Executable name must match plugin.json 'executable'
 const exeName = "grafana-catalyst-datasource"
 
 var Default = BuildAll
 
-// Clean removes the dist directory.
+// Clean removes only backend binaries from dist/ (preserves frontend artifacts like plugin.json).
 func Clean() error {
-	return os.RemoveAll("dist")
-}
-
-// Build builds the backend for the current OS/ARCH.
-func Build() error {
-	mg.Deps(Clean)
-	return buildOSArch(runtime.GOOS, runtime.GOARCH)
-}
-
-// BuildAll builds the backend for a set of OS/ARCH targets used by Grafana plugins.
-func BuildAll() error {
-	mg.Deps(Clean)
-	targets := []struct{ OS, Arch string }{
-		{"linux", "amd64"},
+	entries, err := os.ReadDir("dist")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
-	for _, t := range targets {
-		if err := buildOSArch(t.OS, t.Arch); err != nil {
-			return err
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, exeName) {
+			_ = os.RemoveAll(filepath.Join("dist", name))
 		}
 	}
 	return nil
 }
 
+// Build builds the backend for the current OS/ARCH without wiping dist/.
+func Build() error {
+	return buildOSArch(runtime.GOOS, runtime.GOARCH)
+}
+
+// BuildAll builds ONLY linux/amd64 to keep CI lean.
+func BuildAll() error {
+	return buildOSArch("linux", "amd64")
+}
+
+// Coverage is invoked by some CI pipelines; provide a harmless no-op.
+func Coverage() error {
+	fmt.Println("mage coverage: no-op")
+	return nil
+}
+
 func buildOSArch(goos, goarch string) error {
-	outDir := "dist"
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll("dist", 0o755); err != nil {
 		return err
 	}
 
@@ -53,7 +60,7 @@ func buildOSArch(goos, goarch string) error {
 	if goos == "windows" {
 		bin += ".exe"
 	}
-	out := filepath.Join(outDir, bin)
+	out := filepath.Join("dist", bin)
 
 	env := map[string]string{
 		"GOOS":        goos,
@@ -61,17 +68,7 @@ func buildOSArch(goos, goarch string) error {
 		"CGO_ENABLED": "0",
 	}
 
-	ldflags := strings.Join([]string{
-		"-s", "-w",
-	}, " ")
-
+	ldflags := strings.Join([]string{"-s", "-w"}, " ")
 	args := []string{"build", "-trimpath", "-ldflags", ldflags, "-o", out, "./cmd/grafana-catalyst-datasource"}
 	return sh.RunWithV(env, "go", args...)
-}
-
-// Coverage is invoked by CI packaging; we don't need Go test coverage here.
-// Provide a no-op so the packaging action doesn't fail.
-func Coverage() error {
-	fmt.Println("mage coverage: no-op")
-	return nil
 }
