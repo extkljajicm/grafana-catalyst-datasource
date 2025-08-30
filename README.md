@@ -99,7 +99,14 @@ The script pushes `main` and the tag, then generates `RELEASE_NOTES.md` from the
 
 ---
 
-## CI Release from Git Tag
+## Minimal commands (CI-trigger via tag)
+
+```bash
+# 1) create and push the annotated tag (this is the only thing you MUST do)
+export V=1.0.4
+git tag -a v$V -m "Release v$V"
+git push origin v$V
+```
 
 The GitHub Actions workflow updates the build-time version from the tag (e.g., `v1.0.4 → 1.0.4`) **before** building and packaging. To release via CI:
 
