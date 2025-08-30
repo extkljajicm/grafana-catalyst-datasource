@@ -19,6 +19,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # Inject the Git tag (vX.Y.Z) into plugin.json.info.version BEFORE building.
+      - name: Set plugin.json version from Git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Using tag version: $VERSION"
+          sudo apt-get update -y && sudo apt-get install -y jq
+          jq --arg v "$VERSION" '.info.version=$v' plugin.json > plugin.json.tmp && mv plugin.json.tmp plugin.json
+
       - uses: grafana/plugin-actions/build-plugin@main # zizmor: ignore[unpinned-uses] provided by grafana
         # Uncomment to enable plugin signing
         # (For more info on how to generate the access policy token see https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token)

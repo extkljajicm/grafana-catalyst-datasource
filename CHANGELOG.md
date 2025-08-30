@@ -1,8 +1,15 @@
-# Changelog
-All notable changes to this project will be documented in this file.
+## [1.0.4] - 2025-08-30
+### Added
+- Backend: add **Magefile.go** to cross‑compile backend binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, and `windows/amd64`.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Changed
+- Docs: rewrite **root README** as a concise **Dev & Release Guide** (Docker dev flow, CI tag‑based versioning, local packaging).
+- CI: inject Git **tag version** into `plugin.json.info.version` during workflow before build, keeping repo files unchanged.
+
+### Fixed
+- Packaging: include backend binaries in the plugin archive to satisfy validator checks.
+- README: convert image links to **absolute URLs** for Grafana plugin catalog compatibility.
+- Repo hygiene: ignore Windows ADS artifacts like `*:Zone.Identifier` from being packaged.
 
 ## [1.0.3] - 2025-08-30
 ### Added

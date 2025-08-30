@@ -76,6 +76,7 @@ bin/
 # OS junk
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # Env / Secrets (never commit these!)
 .env

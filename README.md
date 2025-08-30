@@ -2,24 +2,23 @@
 
 > For user plugin docs, see [`src/README.md`](./src/README.md).
 
-This document covers local development, running a Grafana test instance, and creating releases with the helper scripts
-**`create_release.sh`** and **`create-git-release.sh`**.
+This guide covers local development, running a local Grafana, and creating releases with **`create_release.sh`** and **`create-git-release.sh`**. The project is scaffolded with **@grafana/create-plugin** (see `create-plugin-README.md` in the repo for scaffold details and commands).
 
 ---
 
 ## Prerequisites
 
 - **Git**
-- **Node.js ≥ 18** and **npm**
-- **Go ≥ 1.24**
+- **Node.js ≥ 22** and **npm**
+- **Go ≥ 1.21** (Go toolchain will auto-fetch newer if needed)
 - **Docker** with the **Compose plugin**
-- CLI tools used by the helper scripts: `zip`, `awk`, `sed`
+- CLI tools for scripts: `zip`, `awk`, `sed`, `jq`
 
-> Tip: The plugin targets Grafana **12.1+** and builds a Linux/amd64 backend binary for runtime.
+> Target: Grafana **12.1+**. Backend builds for multiple OS/ARCH via `Magefile.go`.
 
 ---
 
-## Clone & install
+## Install & Dev
 
 ```bash
 git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
@@ -27,7 +26,13 @@ cd grafana-catalyst-datasource
 npm ci
 ```
 
-Optional quality checks:
+Dev UI (hot reload):
+
+```bash
+npm run dev
+```
+
+Lint & tests:
 
 ```bash
 npm run lint
@@ -38,9 +43,7 @@ npm run test
 
 ## Local Grafana (Docker)
 
-A `docker-compose.yaml` is included for a quick, local test instance with the plugin mounted.
-
-Common commands:
+A `docker-compose.yaml` is included to run a local Grafana with the plugin.
 
 ```bash
 # rebuild containers when UI or backend changes
@@ -51,77 +54,88 @@ docker compose up -d --build
 docker compose up -d --force-recreate
 ```
 
-Dev UI (hot reload):
-
-```bash
-npm run dev
-```
-
-> The development container permits **unsigned** plugins. For production, sign the plugin per Grafana’s guidelines.
+Unsigned plugins are allowed in this dev setup. For production, follow Grafana’s signing guide.
 
 ---
 
-## Working with Git
+## Git Workflow (quick)
 
 ```bash
-# create a feature branch
 git checkout -b feat/my-change
-
-# stage and commit
 git add -A
-git commit -m "feat: concise summary of the change"
-
-# push your branch
+git commit -m "feat: concise summary"
 git push -u origin feat/my-change
 ```
 
-Keep `CHANGELOG.md` updated; releases derive notes from it.
+Keep `CHANGELOG.md` up to date; release notes are derived from it.
 
 ---
 
-## Build a release
+## Build a Release (local)
 
-1) **Compile the plugin package** (frontend + backend + zip):
+1) **Package** (frontend + backend + zip):
 
 ```bash
 ./create_release.sh
 ```
 
-Output: `grafana-catalyst-datasource-<version>.zip` in the repo root.  
-- If a Git **tag** (e.g., `v1.0.1`) exists, the script uses it as the version.  
-- Otherwise it uses the version from `package.json`.
+Output: `grafana-catalyst-datasource-<version>.zip` in repo root.  
+- If a Git **tag** (e.g., `v1.0.4`) exists, the script uses it as the version.  
+- Otherwise it falls back to `package.json`.
 
-2) **Create an annotated tag for this release** on the current commit:
+2) **Tag the current commit**:
 
 ```bash
-git tag -a v1.0.1 -m "Release v1.0.1"
+git tag -a v1.0.4 -m "Release v1.0.4"
 ```
 
-3) **Publish to GitHub** (push `main` + the tag, and extract release notes from `CHANGELOG.md`):
+3) **Publish to GitHub** (push branch + tag, and prepare notes from `CHANGELOG.md`):
 
 ```bash
 ./create-git-release.sh
 ```
 
-The script will:
-- Push `main` and the new tag
-- Generate `RELEASE_NOTES.md` from the `CHANGELOG.md` section for that tag
+The script pushes `main` and the tag, then generates `RELEASE_NOTES.md` from the matching section in `CHANGELOG.md`. Finalize the GitHub release in the UI and attach the zip if desired.
 
-Then finalize the GitHub release in the UI, attaching the generated zip if desired.
+---
+
+## CI Release from Git Tag
+
+The GitHub Actions workflow updates the build-time version from the tag (e.g., `v1.0.4 → 1.0.4`) **before** building and packaging. To release via CI:
+
+```bash
+git add -A && git commit -m "release: prep v1.0.4"  # optional
+git push origin main                                 # optional
+git tag -a v1.0.4 -m "Release v1.0.4"
+git push origin v1.0.4
+```
+
+CI will:
+- Set `plugin.json.info.version` from the tag
+- Build (frontend + backend via `Magefile.go`)
+- Package and validate the artifact zip
 
 ---
 
 ## Troubleshooting
 
-- Plugin not visible?
+- **Plugin not visible**
   - Confirm Grafana **12.1+**
   - Check container logs for plugin load errors
-  - Ensure the plugin directory has the built `dist/` and `plugin.json` (the release script patches `%VERSION%`/`%TODAY%`)
-- Backend didn’t start?
-  - Release script builds Linux/amd64 binary at `dist/grafana-catalyst-datasource_linux_amd64`
+  - Ensure `dist/` exists with `plugin.json` (placeholders like `%VERSION%`, `%TODAY%` are replaced during build)
+
+- **Backend missing in package**
+  - Ensure `Magefile.go` is present and CI uses `backend-target: buildAll`
+  - Check that `plugin.json` has `"backend": true` and `"executable": "grafana-catalyst-datasource"`
+
+- **Windows ADS file in zip**
+  - Remove any `*:Zone.Identifier` file and add this to `.gitignore`:
+    ```
+    *:Zone.Identifier
+    ```
 
 ---
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © extkljajicm — 2025-08-30

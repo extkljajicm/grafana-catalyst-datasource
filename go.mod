@@ -2,7 +2,10 @@ module github.com/extkljajicm/grafana-catalyst-datasource
 
 go 1.24.6
 
-require github.com/grafana/grafana-plugin-sdk-go v0.279.0
+require (
+	github.com/grafana/grafana-plugin-sdk-go v0.279.0
+	github.com/magefile/mage v1.15.0
+)
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
