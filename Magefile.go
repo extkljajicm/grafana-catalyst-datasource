@@ -68,3 +68,10 @@ func buildOSArch(goos, goarch string) error {
 	args := []string{"build", "-trimpath", "-ldflags", ldflags, "-o", out, "./cmd/grafana-catalyst-datasource"}
 	return sh.RunWithV(env, "go", args...)
 }
+
+// Coverage is invoked by CI packaging; we don't need Go test coverage here.
+// Provide a no-op so the packaging action doesn't fail.
+func Coverage() error {
+	fmt.Println("mage coverage: no-op")
+	return nil
+}
