@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { InlineField, InlineFieldRow, Input, Select } from '@grafana/ui';
+import { Field, Input, Select } from '@grafana/ui';
 import type { SelectableValue } from '@grafana/data';
 import type { CatalystVariableQuery } from '../types';
 
@@ -19,12 +19,16 @@ const TYPE_OPTIONS: Array<SelectableValue<QType>> = [
 ];
 
 function getType(q?: CatalystVariableQuery): QType {
-  if (!q) {return 'priorities';}
+  if (!q) {
+    return 'priorities';
+  }
   return q.type;
 }
 
 function getSearch(q?: CatalystVariableQuery): string {
-  if (!q) {return '';}
+  if (!q) {
+    return '';
+  }
   switch (q.type) {
     case 'sites':
     case 'devices':
@@ -84,34 +88,28 @@ export function VariableQueryEditor({ query, onChange }: VarQEProps): JSX.Elemen
   };
 
   return (
-    <div className="gf-form-group">
-      <InlineFieldRow>
-        <InlineField label="Type" grow>
-          <Select<QType>
-            options={TYPE_OPTIONS}
-            value={TYPE_OPTIONS.find((o) => o.value === selectedType) ?? TYPE_OPTIONS[0]}
-            onChange={(v) => updateType((v.value ?? 'priorities') as QType)}
-          />
-        </InlineField>
-      </InlineFieldRow>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Field label="Type">
+        <Select<QType>
+          options={TYPE_OPTIONS}
+          value={TYPE_OPTIONS.find((o) => o.value === selectedType) ?? TYPE_OPTIONS[0]}
+          onChange={(v) => updateType((v.value ?? 'priorities') as QType)}
+        />
+      </Field>
 
       {(selectedType === 'sites' || selectedType === 'devices' || selectedType === 'macs') && (
-        <InlineFieldRow>
-          <InlineField label="Search" grow tooltip="Optional contains filter; supports variables.">
-            <Input
-              value={search}
-              onChange={(e) => updateSearch(e.currentTarget.value)}
-              placeholder="e.g. branch-a, 00:11:22"
-            />
-          </InlineField>
-        </InlineFieldRow>
+        <Field label="Search">
+          <Input
+            value={search}
+            onChange={(e) => updateSearch(e.currentTarget.value)}
+            placeholder="e.g. branch-a, 00:11:22  (optional; supports variables)"
+          />
+        </Field>
       )}
 
-      <InlineFieldRow>
-        <InlineField label="Definition" grow tooltip="Preview of the variable definition shown by Grafana">
-          <Input value={definition} readOnly />
-        </InlineField>
-      </InlineFieldRow>
+      <Field label="Definition">
+        <Input value={definition} readOnly />
+      </Field>
     </div>
   );
 }

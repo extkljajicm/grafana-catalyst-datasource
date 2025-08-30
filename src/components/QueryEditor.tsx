@@ -1,5 +1,5 @@
 import React, { ChangeEvent, useEffect, useState } from 'react';
-import { InlineField, Input, Select, Stack } from '@grafana/ui';
+import { Field, Input, Select } from '@grafana/ui';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import { CatalystQuery, CatalystJsonData } from '../types';
@@ -64,52 +64,72 @@ export function QueryEditor({ query, onChange, onRunQuery }: Props) {
       setter(e.currentTarget.value);
 
   return (
-    <Stack gap={1}>
-      <InlineField label="Site ID" labelWidth={16} tooltip="DNAC siteId (UUID). Supports variables.">
-        <Input value={siteId} onChange={onText(setSiteId)} placeholder="e.g. 7f6c0f40-...." width={40} />
-      </InlineField>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Field label="Site ID">
+        <Input
+          value={siteId}
+          onChange={onText(setSiteId)}
+          placeholder="e.g. 7f6c0f40-....  (supports variables)"
+          width={40}
+        />
+      </Field>
 
-      <InlineField label="Device ID" labelWidth={16} tooltip="DNAC deviceId (UUID). Supports variables.">
-        <Input value={deviceId} onChange={onText(setDeviceId)} placeholder="e.g. 9b2d3a10-...." width={40} />
-      </InlineField>
+      <Field label="Device ID">
+        <Input
+          value={deviceId}
+          onChange={onText(setDeviceId)}
+          placeholder="e.g. 9b2d3a10-....  (supports variables)"
+          width={40}
+        />
+      </Field>
 
-      <InlineField label="MAC Address" labelWidth={16} tooltip="Client MAC (xx:xx:xx:xx:xx:xx). Supports variables.">
-        <Input value={macAddress} onChange={onText(setMacAddress)} placeholder="aa:bb:cc:dd:ee:ff" width={24} />
-      </InlineField>
+      <Field label="MAC Address">
+        <Input
+          value={macAddress}
+          onChange={onText(setMacAddress)}
+          placeholder="aa:bb:cc:dd:ee:ff  (supports variables)"
+          width={24}
+        />
+      </Field>
 
-      <InlineField
-        label="Priority"
-        labelWidth={16}
-        tooltip="DNAC issue priority. CSV allowed (e.g. P1,P2). Supports variables."
-      >
-        <Input value={priority} onChange={onText(setPriority)} placeholder="P1,P2,P3,P4" width={24} />
-      </InlineField>
+      <Field label="Priority">
+        <Input
+          value={priority}
+          onChange={onText(setPriority)}
+          placeholder="P1,P2,P3,P4  (CSV; supports variables)"
+          width={24}
+        />
+      </Field>
 
-      <InlineField
-        label="Issue Status"
-        labelWidth={16}
-        tooltip="DNAC issueStatus. CSV allowed (e.g. ACTIVE,IGNORED). Supports variables."
-      >
-        <Input value={issueStatus} onChange={onText(setIssueStatus)} placeholder="ACTIVE,IGNORED,RESOLVED" width={28} />
-      </InlineField>
+      <Field label="Issue Status">
+        <Input
+          value={issueStatus}
+          onChange={onText(setIssueStatus)}
+          placeholder="ACTIVE,IGNORED,RESOLVED  (CSV; supports variables)"
+          width={28}
+        />
+      </Field>
 
-      <InlineField label="AI Driven" labelWidth={16} tooltip="YES / NO (leave blank for any).">
+      <Field label="AI Driven">
         <Select
           options={aiOptions}
           value={aiOptions.find((o) => o.value === (aiDriven || '')) || aiOptions[0]}
           onChange={(v) => setAiDriven(v.value ?? '')}
           width={20}
         />
-      </InlineField>
+      </Field>
 
-      <InlineField label="Limit" labelWidth={16} tooltip="Max issues to return (panel-side cap).">
+      <Field label="Limit">
         <Input
           type="number"
           value={limit}
           onChange={(e) => setLimit(Number(e.currentTarget.value) || 100)}
+          placeholder="Max rows"
           width={12}
         />
-      </InlineField>
-    </Stack>
+      </Field>
+    </div>
   );
 }
+
+export default QueryEditor;
