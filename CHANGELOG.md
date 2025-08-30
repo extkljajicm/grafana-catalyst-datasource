@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [1.0.0] - 2025-08-30
+## [1.0.1] - 2025-08-30
 
 ### Added
 - Initial release of **Grafana Catalyst Datasource** plugin.
