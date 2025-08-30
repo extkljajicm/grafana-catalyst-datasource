@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*' # Run workflow on version tags, e.g. v1.0.4
+      - 'v*' # e.g., v1.0.5
 
 permissions: read-all
 
@@ -16,6 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
@@ -28,9 +29,7 @@ jobs:
         with:
           go-version: "1.21"
 
-      # Set build-time version from the git tag.
-      # We always set package.json's version (webpack substitutes %VERSION% into dist/plugin.json).
-      # If plugin.json exists at repo root, we also set info.version for consistency (optional).
+      # Set build-time version from git tag (drives webpack %VERSION% substitution)
       - name: Set build version from Git tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -38,26 +37,18 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
           echo "Using tag version: $VERSION"
-
-          # Drives webpack %VERSION% substitution
           npm version --no-git-tag-version "$VERSION"
 
-          # Optional: update plugin.json if present
-          if [ -f plugin.json ]; then
-            sudo apt-get update -y && sudo apt-get install -y jq
-            jq --arg v "$VERSION" '.info.version=$v' plugin.json > plugin.json.tmp && mv plugin.json.tmp plugin.json
-          else
-            echo "plugin.json not found in repo root; relying on webpack %VERSION% substitution."
-          fi
+      - name: Install frontend deps
+        run: npm ci
 
-      - name: Build plugin
-        uses: grafana/plugin-actions/build-plugin@main
-        with:
-          node-version: 22
-          go-version: 1.21
-          backend-target: buildAll
-          attestation: false
+      - name: Build frontend (creates dist/ and dist/plugin.json)
+        run: npm run build
 
+      - name: Build backend (Mage BuildAll without installing mage)
+        run: go run github.com/magefile/mage -v BuildAll
+
+      # Package & validate; expects dist/ to exist already
       - name: Package plugin
         uses: grafana/plugin-actions/package-plugin@main
         with:
