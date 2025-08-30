@@ -7,7 +7,6 @@
   "executable": "grafana-catalyst-datasource",
   "metrics": true,
   "annotations": false,
-
   "info": {
     "description": "Grafana datasource for Cisco Catalyst Center (DNAC) issues/alerts via the REST API.",
     "author": {
@@ -26,11 +25,15 @@
       "large": "img/logo.svg"
     },
     "links": [],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Config Editor",
+        "path": "img/screenshot-1.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
-
   "dependencies": {
     "grafanaDependency": ">=12.1.0",
     "plugins": []

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- Config ---
 PLUGIN_ID="grafana-catalyst-datasource"
 
 # Prefer git tag (vX.Y.Z) if present, else use package.json version
@@ -9,7 +8,6 @@ if git describe --tags --abbrev=0 >/dev/null 2>&1; then
   TAG=$(git describe --tags --abbrev=0)
   PLUGIN_VERSION="${TAG#v}"
 else
-  # requires npm 8+: prints quoted version, so trim quotes
   PLUGIN_VERSION=$(npm pkg get version | tr -d '"')
 fi
 
@@ -18,40 +16,59 @@ TODAY=$(date +%Y-%m-%d)
 
 echo "==> Building ${PLUGIN_ID} v${PLUGIN_VERSION}"
 
-# --- Clean ---
+# Clean
 rm -rf dist release "${ZIPNAME}"
 mkdir -p dist
 
-# --- Frontend build ---
+# Frontend
 npm run build
 
-# NOTE: DO NOT overwrite dist/plugin.json with src/plugin.json.
-# The Grafana build typically prepared dist/plugin.json already.
-
-# --- Ensure plugin.json has version/date (replace placeholders if any) ---
+# plugin.json: patch placeholders in dist (or copy from src if build didn't emit it)
+if [ -f dist/plugin.json ]; then
+  :
+else
+  cp src/plugin.json dist/
+fi
 if grep -q '%VERSION%' dist/plugin.json || grep -q '%TODAY%' dist/plugin.json; then
-  echo "Patching plugin.json placeholders..."
-  # portable sed (GNU/BSD)
   sed -i.bak "s/%VERSION%/${PLUGIN_VERSION}/g; s/%TODAY%/${TODAY}/g" dist/plugin.json || true
   rm -f dist/plugin.json.bak
 fi
 
-# --- Backend build (Linux AMD64) ---
-GOOS=linux GOARCH=amd64 go build -o "dist/${PLUGIN_ID}_linux_amd64" ./cmd/grafana-catalyst-datasource
+# ---- Backend builds ----
+PKG_PATH="./cmd/grafana-catalyst-datasource"
+
+# (A) Primary runtime target for your container: linux/amd64 at legacy path
+echo "-> linux/amd64 (legacy runtime path)"
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -trimpath -ldflags="-s -w" -o "dist/${PLUGIN_ID}_linux_amd64" "${PKG_PATH}"
 chmod +x "dist/${PLUGIN_ID}_linux_amd64"
 
-# --- (Optional) include docs ---
-# cp -f README.md CHANGELOG.md LICENSE dist/ 2>/dev/null || true
+# (B) Mirrors for validator (optional but helpful)
+build_mirror () {
+  local GOOS="$1" GOARCH="$2"
+  local OUTDIR="dist/${GOOS}-${GOARCH}"
+  mkdir -p "${OUTDIR}"
+  local OUTBIN="${OUTDIR}/${PLUGIN_ID}"
+  [ "${GOOS}" = "windows" ] && OUTBIN="${OUTBIN}.exe"
+  echo "-> ${GOOS}/${GOARCH} (validator mirror)"
+  GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 \
+    go build -trimpath -ldflags="-s -w" -o "${OUTBIN}" "${PKG_PATH}"
+  chmod +x "${OUTBIN}" 2>/dev/null || true
+}
 
-# --- Stage in release folder under top-level plugin dir ---
-rm -rf release
+build_mirror linux amd64
+build_mirror linux arm64
+build_mirror darwin amd64
+build_mirror darwin arm64
+build_mirror windows amd64
+
+# Stage for zip
 mkdir -p "release/${PLUGIN_ID}"
-cp -r dist/* "release/${PLUGIN_ID}/"
+cp -R dist/* "release/${PLUGIN_ID}/"
+# Ensure plugin.json at root of plugin dir as well
+cp dist/plugin.json "release/${PLUGIN_ID}/plugin.json"
 
-# Strip extended attributes to avoid upload parser issues
-(
-  cd release
-  zip -r -X "../${ZIPNAME}" "${PLUGIN_ID}"
-)
+# Zip (strip xattrs)
+( cd release && zip -r -X "../${ZIPNAME}" "${PLUGIN_ID}" )
 
 echo "==> Created release package: ${ZIPNAME}"
