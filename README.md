@@ -117,10 +117,7 @@ git tag -a v$V -m "Release v$V"
 ```
 
 Output: `grafana-catalyst-datasource-<version>.zip` in the repo root.  
-- If a Git **tag** (e.g., `v1.0.5`) exists, the script uses it as the version.  
-- Otherwise it falls back to the version in `package.json`.
 
-> If you want a public GitHub Release for this local artifact, you can upload it manually in the GitHub UI or use `gh release create v$V <zip> -t "Release v$V" -n "<notes>"`.
 
 ---
 
