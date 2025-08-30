@@ -1,19 +1,21 @@
-# Grafana Catalyst Datasource
+# Catalyst Datasource (Plugin Docs)
 
-[![Build](https://github.com/extkljajicm/grafana-catalyst-datasource/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/extkljajicm/grafana-catalyst-datasource/actions/workflows/ci.yml)
+![Logo](../src/img/logo.svg)
 
-The **Grafana Catalyst Datasource** plugin lets you query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly from Grafana dashboards via the Catalyst REST API.
+Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly from Grafana via the Catalyst REST API.
+
+![Screenshot](../src/img/screenshot-1.png)
 
 ---
 
 ## Features
 
-- Fetch Catalyst Center issues via the REST API (`/dna/intent/api/v1/issues`)
-- Filter by site, device, MAC address, severity/priority, status, AI-driven flag, and limit
-- Display results in table panels
-- Populate Grafana variables dynamically (priorities, statuses, sites, devices, MACs)
-- Secure credential and token storage using Grafana's `secureJsonData`
-- Written with a **Go backend** and **React/TypeScript frontend**
+- Fetch issues from `/dna/intent/api/v1/issues`
+- Filter by **Site**, **Device**, **MAC**, **Priority**, **Issue Status**, **AI-driven**, **Limit**
+- Return tabular results for Grafana panels
+- Variable support for **priorities**, **statuses**, **sites**, **devices**, **macs**
+- Secure credentials via Grafana `secureJsonData`
+- Go backend + React/TypeScript frontend
 
 ---
 
@@ -21,79 +23,61 @@ The **Grafana Catalyst Datasource** plugin lets you query **Cisco Catalyst Cente
 
 - Grafana **v12.1.0+**
 - Cisco Catalyst Center with API access
-- User credentials or an API token (`X-Auth-Token`) with permission to query issues
+- DNAC user credentials or an existing `X-Auth-Token`
 
 ---
 
-## Getting Started
+## Configuration (Data source settings)
 
-### Development environment
-
-Clone and install dependencies:
-
-```bash
-git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
-cd grafana-catalyst-datasource
-npm install
-```
-
-Run in development mode (frontend hot reload):
-
-```bash
-npm run dev
-```
-
-Start Grafana test container:
-
-```bash
-docker compose up -d
-```
-
-### Building a release
-
-The plugin includes a build script that compiles both the frontend and the Go backend and packages them for distribution.
-
-```bash
-./create_release.sh
-```
-
-This produces a `.zip` file in the project root (`grafana-catalyst-datasource-<version>.zip`) ready to be installed into Grafana.
+- **Catalyst Base URL** — e.g. `https://<host>/dna/intent/api/v1`
+- **Skip TLS verification** — only for self-signed certs
+- **Username / Password** — used by backend to obtain a short‑lived `X-Auth-Token`
+- **API Token (override)** — paste an existing token to bypass login
 
 ---
 
-## Configuration
+## Query Editor (panels)
 
-In **Data source settings**:
-- **Catalyst Base URL** – e.g. `https://dnac.example.com/dna/intent/api/v1`
-- **Skip TLS verification** – toggle only for self-signed certs
-- **Username / Password** – Catalyst API credentials (backend fetches a short-lived X-Auth-Token)
-- **API Token (override)** – paste an existing token to bypass login
+Fields:
+- **Site ID** — filter by site (UUID)
+- **Device ID** — filter by device (UUID)
+- **MAC Address** — optional MAC filter (`aa:bb:cc:dd:ee:ff`)
+- **Priority** — CSV: `P1,P2,P3,P4`
+- **Issue Status** — CSV: `ACTIVE,IGNORED,RESOLVED`
+- **AI Driven** — `YES`/`NO` (or any/blank)
+- **Limit** — maximum rows returned
 
----
-
-## Usage
-
-- In panel queries, use the **Query Editor** to filter issues by:
-  - Site ID, Device ID, MAC Address
-  - Priority (P1–P4), Issue Status (ACTIVE, IGNORED, RESOLVED)
-  - AI Driven flag (YES/NO)
-  - Limit (max rows)
-
-- In dashboard variables, use the **Variable Query Editor** to dynamically fetch:
-  - Priorities, Issue Statuses, Sites, Devices, MACs
+Variables are supported in text inputs.
 
 ---
 
-## Development Notes
+## Variable Query Editor (dashboards → Variables)
 
-The backend service is written in Go and located in:
+Types:
+- `priorities()`
+- `issueStatuses()`
+- `sites(search:"<text>")`
+- `devices(search:"<text>")`
+- `macs(search:"<text>")`
 
-- `cmd/main.go`
-- `pkg/backend/`
+The optional `search` parameter narrows results (supports Grafana variables).
 
-The frontend React/TypeScript code is in:
+---
 
-- `src/`
+## Output
+
+Designed for Grafana **Table** panels. Typical fields include:
+- Time, Issue ID, Title
+- Priority/Severity, Status, Category
+- Device, Site, Rule, Details
+
+---
+
+## Notes
+
+- Make sure the data source can reach Catalyst Center over the network.
+- Use TLS verification unless you have a good reason not to.
+- For signing & publishing, follow Grafana’s plugin guidelines.
 
 ---
 

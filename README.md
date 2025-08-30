@@ -1,115 +1,127 @@
-# Grafana data source plugin template
+# grafana-catalyst-datasource — Dev & Release Guide
 
-This template is a starting point for building a Data Source Plugin for Grafana.
+> For user plugin docs, see [`src/README.md`](./src/README.md).
 
-## What are Grafana data source plugins?
+This document covers local development, running a Grafana test instance, and creating releases with the helper scripts
+**`create_release.sh`** and **`create-git-release.sh`**.
 
-Grafana supports a wide range of data sources, including Prometheus, MySQL, and even Datadog. There’s a good chance you can already visualize metrics from the systems you have set up. In some cases, though, you already have an in-house metrics solution that you’d like to add to your Grafana dashboards. Grafana Data Source Plugins enables integrating such solutions with Grafana.
+---
 
-## Getting started
+## Prerequisites
 
-### Frontend
+- **Git**
+- **Node.js ≥ 18** and **npm**
+- **Go ≥ 1.24**
+- **Docker** with the **Compose plugin**
+- CLI tools used by the helper scripts: `zip`, `awk`, `sed`
 
-1. Install dependencies
+> Tip: The plugin targets Grafana **12.1+** and builds a Linux/amd64 backend binary for runtime.
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Build plugin in development mode and run in watch mode
+## Clone & install
 
-   ```bash
-   npm run dev
-   ```
+```bash
+git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
+cd grafana-catalyst-datasource
+npm ci
+```
 
-3. Build plugin in production mode
+Optional quality checks:
 
-   ```bash
-   npm run build
-   ```
+```bash
+npm run lint
+npm run test
+```
 
-4. Run the tests (using Jest)
+---
 
-   ```bash
-   # Runs the tests and watches for changes, requires git init first
-   npm run test
+## Local Grafana (Docker)
 
-   # Exits after running all the tests
-   npm run test:ci
-   ```
+A `docker-compose.yaml` is included for a quick, local test instance with the plugin mounted.
 
-5. Spin up a Grafana instance and run the plugin inside it (using Docker)
+Common commands:
 
-   ```bash
-   npm run server
-   ```
+```bash
+# rebuild containers when UI or backend changes
+docker compose down
+docker compose up -d --build
 
-6. Run the E2E tests (using Playwright)
+# force a clean re-create (e.g., after dependency updates)
+docker compose up -d --force-recreate
+```
 
-   ```bash
-   # Spins up a Grafana instance first that we tests against
-   npm run server
+Dev UI (hot reload):
 
-   # If you wish to start a certain Grafana version. If not specified will use latest by default
-   GRAFANA_VERSION=11.3.0 npm run server
+```bash
+npm run dev
+```
 
-   # Starts the tests
-   npm run e2e
-   ```
+> The development container permits **unsigned** plugins. For production, sign the plugin per Grafana’s guidelines.
 
-7. Run the linter
+---
 
-   ```bash
-   npm run lint
+## Working with Git
 
-   # or
+```bash
+# create a feature branch
+git checkout -b feat/my-change
 
-   npm run lint:fix
-   ```
+# stage and commit
+git add -A
+git commit -m "feat: concise summary of the change"
 
-# Distributing your plugin
+# push your branch
+git push -u origin feat/my-change
+```
 
-When distributing a Grafana plugin either within the community or privately the plugin must be signed so the Grafana application can verify its authenticity. This can be done with the `@grafana/sign-plugin` package.
+Keep `CHANGELOG.md` updated; releases derive notes from it.
 
-_Note: It's not necessary to sign a plugin during development. The docker development environment that is scaffolded with `@grafana/create-plugin` caters for running the plugin without a signature._
+---
 
-## Initial steps
+## Build a release
 
-Before signing a plugin please read the Grafana [plugin publishing and signing criteria](https://grafana.com/legal/plugins/#plugin-publishing-and-signing-criteria) documentation carefully.
+1) **Compile the plugin package** (frontend + backend + zip):
 
-`@grafana/create-plugin` has added the necessary commands and workflows to make signing and distributing a plugin via the grafana plugins catalog as straightforward as possible.
+```bash
+./create_release.sh
+```
 
-Before signing a plugin for the first time please consult the Grafana [plugin signature levels](https://grafana.com/legal/plugins/#what-are-the-different-classifications-of-plugins) documentation to understand the differences between the types of signature level.
+Output: `grafana-catalyst-datasource-<version>.zip` in the repo root.  
+- If a Git **tag** (e.g., `v1.0.1`) exists, the script uses it as the version.  
+- Otherwise it uses the version from `package.json`.
 
-1. Create a [Grafana Cloud account](https://grafana.com/signup).
-2. Make sure that the first part of the plugin ID matches the slug of your Grafana Cloud account.
-   - _You can find the plugin ID in the `plugin.json` file inside your plugin directory. For example, if your account slug is `acmecorp`, you need to prefix the plugin ID with `acmecorp-`._
-3. Create a Grafana Cloud API key with the `PluginPublisher` role.
-4. Keep a record of this API key as it will be required for signing a plugin
+2) **Create an annotated tag for this release** on the current commit:
 
-## Signing a plugin
+```bash
+git tag -a v1.0.1 -m "Release v1.0.1"
+```
 
-### Using Github actions release workflow
+3) **Publish to GitHub** (push `main` + the tag, and extract release notes from `CHANGELOG.md`):
 
-If the plugin is using the github actions supplied with `@grafana/create-plugin` signing a plugin is included out of the box. The [release workflow](./.github/workflows/release.yml) can prepare everything to make submitting your plugin to Grafana as easy as possible. Before being able to sign the plugin however a secret needs adding to the Github repository.
+```bash
+./create-git-release.sh
+```
 
-1. Please navigate to "settings > secrets > actions" within your repo to create secrets.
-2. Click "New repository secret"
-3. Name the secret "GRAFANA_API_KEY"
-4. Paste your Grafana Cloud API key in the Secret field
-5. Click "Add secret"
+The script will:
+- Push `main` and the new tag
+- Generate `RELEASE_NOTES.md` from the `CHANGELOG.md` section for that tag
 
-#### Push a version tag
+Then finalize the GitHub release in the UI, attaching the generated zip if desired.
 
-To trigger the workflow we need to push a version tag to github. This can be achieved with the following steps:
+---
 
-1. Run `npm version <major|minor|patch>`
-2. Run `git push origin main --follow-tags`
+## Troubleshooting
 
-## Learn more
+- Plugin not visible?
+  - Confirm Grafana **12.1+**
+  - Check container logs for plugin load errors
+  - Ensure the plugin directory has the built `dist/` and `plugin.json` (the release script patches `%VERSION%`/`%TODAY%`)
+- Backend didn’t start?
+  - Release script builds Linux/amd64 binary at `dist/grafana-catalyst-datasource_linux_amd64`
 
-Below you can find source code for existing app plugins and other related documentation.
+---
 
-- [Basic data source plugin example](https://github.com/grafana/grafana-plugin-examples/tree/master/examples/datasource-basic#readme)
-- [`plugin.json` documentation](https://grafana.com/developers/plugin-tools/reference/plugin-json)
-- [How to sign a plugin?](https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin)
+## License
+
+Apache-2.0 © extkljajicm

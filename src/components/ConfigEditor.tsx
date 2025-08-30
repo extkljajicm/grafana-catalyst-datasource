@@ -41,11 +41,11 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Field label="Catalyst Base URL">
+      <Field label="Catalyst Base URL" description="Can be https://<host> or https://<host>/dna/intent/api/v1. Proxy prefixes before /dna are preserved.">
         <Input
           value={jsonData?.baseUrl ?? ''}
           onChange={onBaseUrl}
-          placeholder="https://<host>/dna/intent/api/v1"
+          placeholder="https://<host>  or  https://<host>/dna/intent/api/v1"
           width={60}
         />
       </Field>
