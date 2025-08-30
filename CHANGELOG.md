@@ -1,34 +1,22 @@
 # Changelog
+All notable changes to this project will be documented in this file.
 
-All notable changes to this project will be documented here.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
-
----
-
-## [Unreleased]
-- Add support for additional Catalyst Center API endpoints.
-- Expand query editor with more filters and metrics.
-- Improved error handling and logging.
-
----
-
-## [1.0.1] - 2025-08-30
-
+## [1.0.3] - 2025-08-30
 ### Added
-- Initial release of **Grafana Catalyst Datasource** plugin.
-- Go backend (`cmd/main.go`, `pkg/backend/`) built with Grafana Plugin SDK.
-- React/TypeScript frontend (`src/`) with clean Config, Query, and Variable editors.
-- Config editor with:
-  - Base URL field
-  - Skip TLS verification toggle
-  - Username / Password authentication (backend fetches X-Auth-Token)
-  - Optional API token override
-- Query editor with filters:
-  - `siteId`, `deviceId`, `macAddress`
-  - `priority` (P1..P4), `issueStatus` (ACTIVE/IGNORED/RESOLVED)
-  - `aiDriven` (YES/NO), `limit`
-- Variable query support:
-  - `priorities`, `issueStatuses`, `sites`, `devices`, `macs`
-- Table panel integration: returns issue details (time, ID, title, severity, status, category, device, site, rule, details).
+- Backend: optional token expiry parsing. The token manager now derives expiry from **headers** (e.g., `X-Auth-Token-Expires-In`, `X-Auth-Token-Expiry`, `Cache-Control: max-age=…`, `Expires`) and also from common **JSON** fields (`expiresIn`, `expires_in`, `expiresAt`, `expiry`, `expiration`, `expireTime`) when available.
+
+### Changed
+- Backend: normalized DNAC base URL handling. `TokenURL` and `IssuesURL` now anchor to `/dna/...` and preserve any reverse-proxy prefix preceding `/dna`, ensuring consistent calls to:
+  - `<prefix>/dna/system/api/v1/auth/token`
+  - `<prefix>/dna/intent/api/v1/issues`
+- UI: Config Editor hint updated to accept either `https://<host>` **or** `https://<host>/dna/intent/api/v1` (proxy prefixes are preserved).
+
+### Notes
+- Manual `apiToken` override still bypasses dynamic fetching (unchanged behavior).
+- Default TTL remains 55 minutes when no expiry hints are present.
+
+## [1.0.2] - 2025-08-30
+- Tag created. If you published a release for `v1.0.2` already, consider `v1.0.3` for the above backend + UI adjustments.
