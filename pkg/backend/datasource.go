@@ -282,6 +282,18 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			fTime, fID, fTitle, fSeverity, fStatus, fCategory, fDevice, fMAC, fSite, fRule, fDetails,
 		)
 
+		// If no rows, add an informational notice for better UX
+		if len(rows) == 0 {
+			frame.SetMeta(&data.FrameMeta{
+				Notices: []data.Notice{
+					{
+						Severity: data.NoticeSeverityInfo,
+						Text:     "No issues found for the selected time range/filters",
+					},
+				},
+			})
+		}
+
 		dr.Frames = append(dr.Frames, frame)
 		resp.Responses[q.RefID] = dr
 	}
@@ -317,7 +329,7 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 		}, nil
 	}
 
-	u := issuesURL + "?limit=1&offset=0&startTime=0&endTime=1"
+	u := issuesURL + "?limit=1"
 	reqHTTP, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	tok, _ := d.tm.getToken(ctx, inst.UID, settings, httpClient)
 	reqHTTP.Header.Set("X-Auth-Token", tok)
