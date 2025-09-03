@@ -35,6 +35,12 @@ export interface CatalystQuery extends DataQuery {
 
   // Hard cap on results (applied after pagination merge)
   limit?: number;
+
+  /**
+   * When true, the backend will perform extra API calls to enrich issues
+   * with details like device/MAC info. This can impact performance.
+   */
+  enrich?: boolean;
 }
 
 /**
@@ -43,6 +49,7 @@ export interface CatalystQuery extends DataQuery {
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
   queryType: 'alerts',
   limit: 25,
+  enrich: false,
 };
 
 export interface CatalystJsonData extends DataSourceJsonData {

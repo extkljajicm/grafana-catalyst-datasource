@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Field, Input, Select } from '@grafana/ui';
+import { Field, Input, Select, Switch } from '@grafana/ui';
 import type { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import { CatalystQuery, CatalystJsonData, CatalystPriority, CatalystIssueStatus } from '../types';
@@ -90,6 +90,11 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dSiteId, dDeviceId, dMac, dPriority, dIssueStatus, dAiDriven, dLimit]);
 
+  const onEnrichChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange({ ...query, enrich: e.currentTarget.checked });
+    onRunQuery();
+  };
+
   return (
     <div className="gf-form-group">
       <div className="gf-form">
@@ -157,6 +162,10 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
             placeholder="Max rows"
             width={12}
           />
+        </Field>
+
+        <Field label="Fetch full details" description="Enriches issues with device/MAC details. Slower query time.">
+          <Switch value={!!query.enrich} onChange={onEnrichChange} />
         </Field>
       </div>
     </div>

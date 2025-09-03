@@ -110,26 +110,26 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			Rule     string
 			Details  string
 		}
-		rows := make([]row, 0, 256)
+		// NEW: Renamed from 'rows' to 'issueRows' for clarity
+		issueRows := make([]row, 0, 256)
+		// NEW: This will hold the raw issue data for enrichment
+		allIssues := make([]map[string]any, 0, 256)
 
-		for int64(len(rows)) < hardLimit {
-			// Calculate the page size for this specific request to not exceed hardLimit
+		for int64(len(allIssues)) < hardLimit {
 			limitForThisPage := pageSize
-			remaining := int(hardLimit - int64(len(rows)))
+			remaining := int(hardLimit - int64(len(allIssues)))
 			if remaining < limitForThisPage {
 				limitForThisPage = remaining
 			}
 
-			// Use the helper function to build params, ensuring a 1-based offset
 			params := buildAssuranceParamsFromQuery(
 				qm,
 				q.TimeRange.From.UnixMilli(),
 				q.TimeRange.To.UnixMilli(),
 				limitForThisPage,
-				offset+1, // The assurance API uses a 1-based offset
+				offset+1,
 			)
 
-			// Ensure token (using the same TLS behavior)
 			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
 			if err != nil {
 				dr.Error = fmt.Errorf("token: %w", err)
@@ -183,73 +183,102 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				break
 			}
 
-			for _, it := range arr {
-				getStr := func(k string) string {
-					if v, ok := it[k]; ok && v != nil {
-						if s, ok2 := v.(string); ok2 {
-							return s
-						}
-					}
-					return ""
-				}
-				getNum := func(k string) int64 {
-					if v, ok := it[k]; ok && v != nil {
-						switch x := v.(type) {
-						case float64:
-							return int64(x)
-						case int64:
-							return x
-						case json.Number:
-							n, _ := x.Int64()
-							return n
-						}
-					}
-					return 0
-				}
-
-				r := row{
-					TimeMs:   firstNonZero(getNum("timestamp"), getNum("firstOccurredTime"), getNum("startTime")),
-					ID:       firstNonEmpty(getStr("issueId"), getStr("id"), getStr("instanceId")),
-					Title:    firstNonEmpty(getStr("name"), getStr("title"), getStr("issueTitle")),
-					Severity: firstNonEmpty(getStr("priority"), getStr("severity")),
-					Status:   firstNonEmpty(getStr("issueStatus"), getStr("status")),
-					Category: firstNonEmpty(getStr("category"), getStr("type")),
-					Device:   firstNonEmpty(getStr("deviceId"), getStr("deviceIp"), getStr("device")),
-					MAC:      firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
-					Site:     firstNonEmpty(getStr("siteId"), getStr("site")),
-					Rule:     getStr("ruleId"),
-					Details:  firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
-				}
-				if r.TimeMs == 0 {
-					r.TimeMs = q.TimeRange.From.UnixMilli()
-				}
-				rows = append(rows, r)
-				if int64(len(rows)) >= hardLimit {
-					break
-				}
-			}
-
+			allIssues = append(allIssues, arr...)
 			if len(arr) < pageSize {
 				break
 			}
 			offset += pageSize
 		}
 
+		// NEW: Site Name Resolution Block
+		siteIDToNameMap := make(map[string]string)
+		if len(allIssues) > 0 {
+			uniqueSiteIDs := make(map[string]struct{})
+			for _, issue := range allIssues {
+				if siteID, ok := issue["siteId"].(string); ok && siteID != "" {
+					uniqueSiteIDs[siteID] = struct{}{}
+				}
+			}
+
+			var siteIDs []string
+			for id := range uniqueSiteIDs {
+				siteIDs = append(siteIDs, id)
+			}
+
+			if len(siteIDs) > 0 {
+				var err error
+				siteIDToNameMap, err = d.getSiteNamesByID(ctx, httpClient, inst, siteIDs)
+				if err != nil {
+					log.DefaultLogger.Warn("failed to resolve site names", "err", err)
+				}
+			}
+		}
+		// NEW: End Site Name Resolution Block
+
+		for _, it := range allIssues {
+			getStr := func(k string) string {
+				if v, ok := it[k]; ok && v != nil {
+					if s, ok2 := v.(string); ok2 {
+						return s
+					}
+				}
+				return ""
+			}
+			getNum := func(k string) int64 {
+				if v, ok := it[k]; ok && v != nil {
+					switch x := v.(type) {
+					case float64:
+						return int64(x)
+					case int64:
+						return x
+					case json.Number:
+						n, _ := x.Int64()
+						return n
+					}
+				}
+				return 0
+			}
+
+			siteID := getStr("siteId")
+			siteName := siteID // Fallback to ID
+			if name, ok := siteIDToNameMap[siteID]; ok {
+				siteName = name // Use name if found
+			}
+
+			r := row{
+				TimeMs:   firstNonZero(getNum("timestamp"), getNum("firstOccurredTime"), getNum("startTime")),
+				ID:       firstNonEmpty(getStr("issueId"), getStr("id"), getStr("instanceId")),
+				Title:    firstNonEmpty(getStr("name"), getStr("title"), getStr("issueTitle")),
+				Severity: firstNonEmpty(getStr("priority"), getStr("severity")),
+				Status:   firstNonEmpty(getStr("issueStatus"), getStr("status")),
+				Category: firstNonEmpty(getStr("category"), getStr("type")),
+				Device:   firstNonEmpty(getStr("deviceId"), getStr("deviceIp"), getStr("device")),
+				MAC:      firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
+				Site:     siteName,
+				Rule:     getStr("ruleId"),
+				Details:  firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
+			}
+			if r.TimeMs == 0 {
+				r.TimeMs = q.TimeRange.From.UnixMilli()
+			}
+			issueRows = append(issueRows, r)
+		}
+
 		// Build frame
 		frame := data.NewFrame(q.RefID)
-		fTime := data.NewField("Time", nil, make([]time.Time, 0, len(rows)))
-		fID := data.NewField("Issue ID", nil, make([]string, 0, len(rows)))
-		fTitle := data.NewField("Title", nil, make([]string, 0, len(rows)))
-		fSeverity := data.NewField("Priority", nil, make([]string, 0, len(rows)))
-		fStatus := data.NewField("Status", nil, make([]string, 0, len(rows)))
-		fCategory := data.NewField("Category", nil, make([]string, 0, len(rows)))
-		fDevice := data.NewField("Device ID", nil, make([]string, 0, len(rows)))
-		fMAC := data.NewField("MAC", nil, make([]string, 0, len(rows)))
-		fSite := data.NewField("Site ID", nil, make([]string, 0, len(rows)))
-		fRule := data.NewField("Rule", nil, make([]string, 0, len(rows)))
-		fDetails := data.NewField("Details", nil, make([]string, 0, len(rows)))
+		fTime := data.NewField("Time", nil, make([]time.Time, 0, len(issueRows)))
+		fID := data.NewField("Issue ID", nil, make([]string, 0, len(issueRows)))
+		fTitle := data.NewField("Title", nil, make([]string, 0, len(issueRows)))
+		fSeverity := data.NewField("Priority", nil, make([]string, 0, len(issueRows)))
+		fStatus := data.NewField("Status", nil, make([]string, 0, len(issueRows)))
+		fCategory := data.NewField("Category", nil, make([]string, 0, len(issueRows)))
+		fDevice := data.NewField("Device ID", nil, make([]string, 0, len(issueRows)))
+		fMAC := data.NewField("MAC", nil, make([]string, 0, len(issueRows)))
+		fSite := data.NewField("Site Name", nil, make([]string, 0, len(issueRows)))
+		fRule := data.NewField("Rule", nil, make([]string, 0, len(issueRows)))
+		fDetails := data.NewField("Details", nil, make([]string, 0, len(issueRows)))
 
-		for _, r := range rows {
+		for _, r := range issueRows {
 			fTime.Append(time.UnixMilli(r.TimeMs))
 			fID.Append(r.ID)
 			fTitle.Append(r.Title)
@@ -267,8 +296,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			fTime, fID, fTitle, fSeverity, fStatus, fCategory, fDevice, fMAC, fSite, fRule, fDetails,
 		)
 
-		// If no rows, add an informational notice for better UX
-		if len(rows) == 0 {
+		if len(issueRows) == 0 {
 			frame.SetMeta(&data.FrameMeta{
 				Notices: []data.Notice{
 					{
@@ -284,6 +312,52 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	}
 
 	return resp, nil
+}
+
+// NEW: Helper function to get site names from a list of IDs
+func (d *Datasource) getSiteNamesByID(ctx context.Context, httpClient *http.Client, inst *dsInstance, siteIDs []string) (map[string]string, error) {
+	siteURL, err := SiteURL(inst.Settings.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("bad site baseUrl: %w", err)
+	}
+
+	// The Catalyst Center API uses a comma-separated list for multiple IDs
+	params := url.Values{}
+	params.Set("siteId", strings.Join(siteIDs, ","))
+	reqURL := siteURL + "?" + params.Encode()
+
+	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("token for site lookup: %w", err)
+	}
+
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	httpReq.Header.Set("X-Auth-Token", token)
+	httpReq.Header.Set("Accept", "application/json")
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("site request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(httpResp.Body)
+		return nil, fmt.Errorf("site endpoint returned %s: %s", httpResp.Status, string(body))
+	}
+
+	var envelope SiteEnvelope
+	if err := json.NewDecoder(httpResp.Body).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("failed to decode site response: %w", err)
+	}
+
+	nameMap := make(map[string]string)
+	for _, site := range envelope.Response {
+		if site.ID != "" && site.Name != "" {
+			nameMap[site.ID] = site.Name
+		}
+	}
+	return nameMap, nil
 }
 
 // ---- CheckHealth ----
@@ -371,7 +445,6 @@ func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *
 		return sender.Send(&backend.CallResourceResponse{Status: http.StatusBadRequest, Body: []byte("bad baseUrl")})
 	}
 
-	// req.URL is a string; parse to extract query string
 	var rawQuery string
 	if req.URL != "" {
 		if u, err := url.Parse(req.URL); err == nil {

@@ -84,6 +84,19 @@ func IssuesURL(base string) (string, error) {
 	return u.String(), nil
 }
 
+// SiteURL always points to <prefix>/dna/intent/api/v1/site
+func SiteURL(base string) (string, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	prefix := dnacPrefix(u.Path)
+	u.Path = prefix + "/dna/intent/api/v1/site"
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
+}
+
 // StringOrBool accepts boolean or string JSON and preserves a normalized string form.
 type StringOrBool string
 
@@ -128,6 +141,7 @@ type QueryModel struct {
 	AIDriven    StringOrBool `json:"aiDriven,omitempty"`
 	Limit       *int64       `json:"limit,omitempty"`
 	RefID       string       `json:"refId,omitempty"`
+	Enrich      bool         `json:"enrich,omitempty"`
 
 	// Optional aliases for backward-compat in param builder (if used)
 	Severity string `json:"severity,omitempty"`
@@ -141,4 +155,15 @@ type tokenEntry struct {
 
 type IssuesEnvelope struct {
 	Response []map[string]any `json:"response"`
+}
+
+// SiteEnvelope defines the structure for the site API response.
+type SiteEnvelope struct {
+	Response []Site `json:"response"`
+}
+
+// Site holds the relevant fields from the site API.
+type Site struct {
+	ID   string `json:"id"`
+	Name string `json:"siteName"`
 }
