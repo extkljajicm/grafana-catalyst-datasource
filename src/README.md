@@ -10,7 +10,8 @@ Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly fro
 
 ## Features
 
-- Fetch issues from `/dna/intent/api/v1/issues`
+- Fetch issues from `/dna/data/api/v1/assuranceIssues`
+- Pagination uses one-based offset
 - Filters: **Site**, **Device**, **MAC**, **Priority**, **Issue Status**, **AI-driven**, **Limit**
 - Variable support: **priorities**, **statuses**, **sites**, **devices**, **macs**
 - Secure credentials via Grafana `secureJsonData`

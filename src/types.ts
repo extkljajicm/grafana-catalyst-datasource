@@ -5,14 +5,18 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
  */
 export type QueryType = 'alerts';
 
+// Define specific types for query parameters
+export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
+export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
+
 /**
  * Panel query model.
  *
  * NOTE:
  * - DNAC uses `priority` (P1..P4) and `issueStatus` (ACTIVE/IGNORED/RESOLVED).
  * - Some UI code might still refer to `severity` and `status`. We keep them here
- *   as optional aliases so the editors compile. The datasource/backend will
- *   normalize to `priority` / `issueStatus`.
+ * as optional aliases so the editors compile. The datasource/backend will
+ * normalize to `priority` / `issueStatus`.
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
@@ -21,13 +25,13 @@ export interface CatalystQuery extends DataQuery {
   siteId?: string;
   deviceId?: string;
   macAddress?: string;
-  priority?: string;     // P1,P2,P3,P4
-  issueStatus?: string;  // ACTIVE,IGNORED,RESOLVED
-  aiDriven?: string;     // YES,NO
+  priority?: CatalystPriority; // Use stricter type
+  issueStatus?: CatalystIssueStatus; // Use stricter type
+  aiDriven?: string; // YES,NO
 
   // UI-friendly aliases (optional). Frontend can map these to DNAC fields.
-  severity?: string;     // alias for priority
-  status?: string;       // alias for issueStatus
+  severity?: string; // alias for priority
+  status?: string; // alias for issueStatus
 
   // Hard cap on results (applied after pagination merge)
   limit?: number;
@@ -38,7 +42,7 @@ export interface CatalystQuery extends DataQuery {
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
   queryType: 'alerts',
-  limit: 100,
+  limit: 25,
 };
 
 export interface CatalystJsonData extends DataSourceJsonData {

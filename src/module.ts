@@ -1,8 +1,8 @@
 import { DataSourcePlugin } from '@grafana/data';
 import { DataSource } from './datasource';
 import { ConfigEditor } from './components/ConfigEditor';
-import { QueryEditor } from './components/QueryEditor';
-import { VariableQueryEditor } from './components/VariableQueryEditor';
+import QueryEditor from './components/QueryEditor';
+import VariableQueryEditor from './components/VariableQueryEditor';
 import type { CatalystQuery, CatalystJsonData } from './types';
 
 // Wire up datasource + editors.

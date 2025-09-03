@@ -18,29 +18,8 @@ const TYPE_OPTIONS: Array<SelectableValue<QType>> = [
   { label: 'MACs', value: 'macs' },
 ];
 
-function getType(q?: CatalystVariableQuery): QType {
-  if (!q) {
-    return 'priorities';
-  }
-  return q.type;
-}
-
-function getSearch(q?: CatalystVariableQuery): string {
-  if (!q) {
-    return '';
-  }
-  switch (q.type) {
-    case 'sites':
-    case 'devices':
-    case 'macs':
-      return q.search ?? '';
-    default:
-      return '';
-  }
-}
-
-function buildQuery(t: QType, search?: string): CatalystVariableQuery {
-  switch (t) {
+function varQueryFrom(type: QType, search?: string): CatalystVariableQuery {
+  switch (type) {
     case 'priorities':
       return { type: 'priorities' };
     case 'issueStatuses':
@@ -51,6 +30,8 @@ function buildQuery(t: QType, search?: string): CatalystVariableQuery {
       return { type: 'devices', search: (search ?? '').trim() || undefined };
     case 'macs':
       return { type: 'macs', search: (search ?? '').trim() || undefined };
+    default:
+      return { type: 'priorities' };
   }
 }
 
@@ -66,39 +47,42 @@ function definitionFor(q: CatalystVariableQuery): string {
       return q.search ? `devices(search:"${q.search}")` : 'devices()';
     case 'macs':
       return q.search ? `macs(search:"${q.search}")` : 'macs()';
+    default:
+      return '';
   }
 }
 
-export function VariableQueryEditor({ query, onChange }: VarQEProps): JSX.Element {
-  const selectedType = getType(query);
-  const search = getSearch(query);
+const VariableQueryEditor: React.FC<VarQEProps> = ({ query, onChange }) => {
+  const type: QType = query?.type ?? 'priorities';
+  const search = query && 'search' in query ? (query.search ?? '') : '';
 
   const definition = useMemo(() => {
-    return definitionFor(buildQuery(selectedType, search));
-  }, [selectedType, search]);
+    const q = varQueryFrom(type, search);
+    return definitionFor(q);
+  }, [type, search]);
 
-  const updateType = (t: QType) => {
-    const next = buildQuery(t, search);
-    onChange(next, definitionFor(next));
+  const updateType = (t?: QType) => {
+    const q = varQueryFrom(t ?? 'priorities', search);
+    onChange(q, definitionFor(q));
   };
 
   const updateSearch = (s: string) => {
-    const next = buildQuery(selectedType, s);
-    onChange(next, definitionFor(next));
+    const q = varQueryFrom(type, s);
+    onChange(q, definitionFor(q));
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="gf-form-group">
       <Field label="Type">
-        <Select<QType>
+        <Select
           options={TYPE_OPTIONS}
-          value={TYPE_OPTIONS.find((o) => o.value === selectedType) ?? TYPE_OPTIONS[0]}
-          onChange={(v) => updateType((v.value ?? 'priorities') as QType)}
+          value={TYPE_OPTIONS.find((o) => o.value === type) ?? TYPE_OPTIONS[0]}
+          onChange={(v) => updateType(v?.value as QType)}
         />
       </Field>
 
-      {(selectedType === 'sites' || selectedType === 'devices' || selectedType === 'macs') && (
-        <Field label="Search">
+      {type !== 'priorities' && type !== 'issueStatuses' && (
+        <Field label="Search (optional)">
           <Input
             value={search}
             onChange={(e) => updateSearch(e.currentTarget.value)}
@@ -112,6 +96,6 @@ export function VariableQueryEditor({ query, onChange }: VarQEProps): JSX.Elemen
       </Field>
     </div>
   );
-}
+};
 
 export default VariableQueryEditor;

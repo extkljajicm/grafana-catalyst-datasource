@@ -22,6 +22,12 @@ Target environment: Grafana **12.1+**. Backend binaries are built via `Magefile.
 ## Install & Dev
 
 ```bash
+sudo apt install -y git zip unzip gawk sed jq golang-go nodejs npm docker.io docker-compose
+sudo usermod -aG docker $USER
+```
+
+
+```bash
 git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
 cd grafana-catalyst-datasource
 npm ci

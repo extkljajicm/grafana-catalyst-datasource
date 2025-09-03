@@ -1,8 +1,8 @@
-import React, { ChangeEvent, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Field, Input, Select } from '@grafana/ui';
-import { QueryEditorProps, SelectableValue } from '@grafana/data';
+import type { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
-import { CatalystQuery, CatalystJsonData } from '../types';
+import { CatalystQuery, CatalystJsonData, CatalystPriority, CatalystIssueStatus } from '../types';
 
 type Props = QueryEditorProps<DataSource, CatalystQuery, CatalystJsonData>;
 
@@ -15,121 +15,152 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-const aiOptions: Array<SelectableValue<string>> = [
-  { label: '— Any —', value: '' },
-  { label: 'YES', value: 'YES' },
-  { label: 'NO', value: 'NO' },
+const PRIORITY_OPTIONS: Array<SelectableValue<CatalystPriority>> = [
+  { label: 'P1', value: 'P1' },
+  { label: 'P2', value: 'P2' },
+  { label: 'P3', value: 'P3' },
+  { label: 'P4', value: 'P4' },
 ];
 
-export function QueryEditor({ query, onChange, onRunQuery }: Props) {
-  // Local state mirrors query fields; debounced push -> onChange + onRunQuery
-  const [siteId, setSiteId] = useState(query.siteId ?? '');
-  const [deviceId, setDeviceId] = useState(query.deviceId ?? '');
-  const [macAddress, setMacAddress] = useState(query.macAddress ?? '');
-  const [priority, setPriority] = useState(query.priority ?? query.severity ?? ''); // compat
-  const [issueStatus, setIssueStatus] = useState(query.issueStatus ?? query.status ?? ''); // compat
-  const [aiDriven, setAiDriven] = useState(query.aiDriven ?? '');
-  const [limit, setLimit] = useState<number>(query.limit ?? 100);
+const STATUS_OPTIONS: Array<SelectableValue<CatalystIssueStatus>> = [
+  { label: 'ACTIVE', value: 'ACTIVE' },
+  { label: 'RESOLVED', value: 'RESOLVED' },
+  { label: 'IGNORED', value: 'IGNORED' },
+];
 
-  const dSiteId = useDebounced(siteId, 300);
-  const dDeviceId = useDebounced(deviceId, 300);
-  const dMac = useDebounced(macAddress, 300);
-  const dPriority = useDebounced(priority, 300);
-  const dIssueStatus = useDebounced(issueStatus, 300);
-  const dAiDriven = useDebounced(aiDriven, 300);
-  const dLimit = useDebounced(limit, 300);
+const AI_OPTIONS: Array<SelectableValue<string>> = [
+  { label: 'Any', value: '' },
+  { label: 'True', value: 'true' },
+  { label: 'False', value: 'false' },
+];
 
-  // Push debounced values into the query model and run
+const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
+  // Local state mirrors query fields
+  const [siteId, setSiteId] = useState<string>(query.siteId ?? '');
+  const [deviceId, setDeviceId] = useState<string>(query.deviceId ?? '');
+  const [macAddress, setMacAddress] = useState<string>(query.macAddress ?? '');
+  const [priority, setPriority] = useState<CatalystPriority | ''>(query.priority ?? '');
+  const [issueStatus, setIssueStatus] = useState<CatalystIssueStatus | ''>(query.issueStatus ?? '');
+  const [aiDriven, setAiDriven] = useState<string>(query.aiDriven ? 'true' : query.aiDriven === 'false' ? 'false' : '');
+  const [limit, setLimit] = useState<number>(query.limit ?? 25);
+
+  const dSiteId = useDebounced(siteId, 400);
+  const dDeviceId = useDebounced(deviceId, 400);
+  const dMac = useDebounced(macAddress, 400);
+  const dPriority = useDebounced(priority, 400);
+  const dIssueStatus = useDebounced(issueStatus, 400);
+  const dAiDriven = useDebounced(aiDriven, 400);
+  const dLimit = useDebounced(limit, 400);
+
+  // Prevent loops: only push changes when the signature changes
+  const lastSig = useRef<string>('');
   useEffect(() => {
-    onChange({
+    const sig = [
+      dSiteId || '',
+      dDeviceId || '',
+      dMac || '',
+      dPriority || '',
+      dIssueStatus || '',
+      dAiDriven || '',
+      String(dLimit ?? 0),
+    ].join('|');
+
+    if (sig === lastSig.current) {
+      return;
+    }
+    lastSig.current = sig;
+
+    const next: CatalystQuery = {
       ...query,
+      queryType: 'alerts',
       siteId: dSiteId || undefined,
       deviceId: dDeviceId || undefined,
       macAddress: dMac || undefined,
-      priority: dPriority || undefined,
-      issueStatus: dIssueStatus || undefined,
-      aiDriven: dAiDriven || undefined,
-      limit: dLimit,
-      // keep legacy fields synced for compatibility (optional)
+      priority: dPriority === '' ? undefined : dPriority,
+      issueStatus: dIssueStatus === '' ? undefined : dIssueStatus,
+      aiDriven: dAiDriven === '' ? undefined : dAiDriven,
+      limit: dLimit ?? 25,
+      // clear deprecated aliases (backend already handles)
       severity: undefined,
       status: undefined,
-    });
+    };
+
+    onChange(next);
     onRunQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dSiteId, dDeviceId, dMac, dPriority, dIssueStatus, dAiDriven, dLimit]);
 
-  const onText =
-    (setter: React.Dispatch<React.SetStateAction<string>>) =>
-    (e: ChangeEvent<HTMLInputElement>) =>
-      setter(e.currentTarget.value);
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Field label="Site ID">
-        <Input
-          value={siteId}
-          onChange={onText(setSiteId)}
-          placeholder="e.g. 7f6c0f40-....  (supports variables)"
-          width={40}
-        />
-      </Field>
+    <div className="gf-form-group">
+      <div className="gf-form">
+        <Field label="Site ID">
+          <Input
+            value={siteId}
+            onChange={(e) => setSiteId(e.currentTarget.value)}
+            placeholder="e.g. 7f6c0f40-...  (supports $__value from variables)"
+            width={30}
+          />
+        </Field>
+        <Field label="Device ID">
+          <Input
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.currentTarget.value)}
+            placeholder="e.g. 9b2d3a10-..."
+            width={30}
+          />
+        </Field>
+        <Field label="MAC">
+          <Input
+            value={macAddress}
+            onChange={(e) => setMacAddress(e.currentTarget.value)}
+            placeholder="00:11:22:33:44:55"
+            width={30}
+          />
+        </Field>
+      </div>
 
-      <Field label="Device ID">
-        <Input
-          value={deviceId}
-          onChange={onText(setDeviceId)}
-          placeholder="e.g. 9b2d3a10-....  (supports variables)"
-          width={40}
-        />
-      </Field>
+      <div className="gf-form">
+        <Field label="Priority">
+          <Select
+            options={PRIORITY_OPTIONS}
+            value={PRIORITY_OPTIONS.find((o) => o.value === (priority || undefined)) ?? null}
+            onChange={(v) => setPriority(v?.value ?? '')}
+            isClearable
+            width={20}
+          />
+        </Field>
 
-      <Field label="MAC Address">
-        <Input
-          value={macAddress}
-          onChange={onText(setMacAddress)}
-          placeholder="aa:bb:cc:dd:ee:ff  (supports variables)"
-          width={24}
-        />
-      </Field>
+        <Field label="Status">
+          <Select
+            options={STATUS_OPTIONS}
+            value={STATUS_OPTIONS.find((o) => o.value === (issueStatus || undefined)) ?? null}
+            onChange={(v) => setIssueStatus(v?.value ?? '')}
+            isClearable
+            width={20}
+          />
+        </Field>
 
-      <Field label="Priority">
-        <Input
-          value={priority}
-          onChange={onText(setPriority)}
-          placeholder="P1,P2,P3,P4  (CSV; supports variables)"
-          width={24}
-        />
-      </Field>
+        <Field label="AI-driven">
+          <Select
+            options={AI_OPTIONS}
+            value={AI_OPTIONS.find((o) => o.value === (aiDriven || '')) ?? AI_OPTIONS[0]}
+            onChange={(v) => setAiDriven(v?.value ?? '')}
+            width={12}
+          />
+        </Field>
 
-      <Field label="Issue Status">
-        <Input
-          value={issueStatus}
-          onChange={onText(setIssueStatus)}
-          placeholder="ACTIVE,IGNORED,RESOLVED  (CSV; supports variables)"
-          width={28}
-        />
-      </Field>
-
-      <Field label="AI Driven">
-        <Select
-          options={aiOptions}
-          value={aiOptions.find((o) => o.value === (aiDriven || '')) || aiOptions[0]}
-          onChange={(v) => setAiDriven(v.value ?? '')}
-          width={20}
-        />
-      </Field>
-
-      <Field label="Limit">
-        <Input
-          type="number"
-          value={limit}
-          onChange={(e) => setLimit(Number(e.currentTarget.value) || 100)}
-          placeholder="Max rows"
-          width={12}
-        />
-      </Field>
+        <Field label="Limit">
+          <Input
+            type="number"
+            value={limit}
+            onChange={(e) => setLimit(Number(e.currentTarget.value) || 100)}
+            placeholder="Max rows"
+            width={12}
+          />
+        </Field>
+      </div>
     </div>
   );
-}
+};
 
 export default QueryEditor;

@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -91,31 +90,9 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			continue
 		}
 
-		params := url.Values{}
-		params.Set("startTime", strconv.FormatInt(q.TimeRange.From.UnixMilli(), 10))
-		params.Set("endTime", strconv.FormatInt(q.TimeRange.To.UnixMilli(), 10))
-		if s := strings.TrimSpace(qm.SiteID); s != "" {
-			params.Set("siteId", s)
-		}
-		if s := strings.TrimSpace(qm.DeviceID); s != "" {
-			params.Set("deviceId", s)
-		}
-		if s := strings.TrimSpace(qm.MacAddress); s != "" {
-			params.Set("macAddress", s)
-		}
-		if s := strings.TrimSpace(qm.Priority); s != "" {
-			params.Set("priority", s)
-		}
-		if s := strings.TrimSpace(qm.IssueStatus); s != "" {
-			params.Set("issueStatus", s)
-		}
-		if s := strings.TrimSpace(qm.AIDriven); s != "" {
-			params.Set("aiDriven", s)
-		}
-
-		pageSize := 100
+		pageSize := 25
 		offset := 0
-		var hardLimit int64 = 100
+		var hardLimit int64 = 25
 		if qm.Limit != nil && *qm.Limit > 0 {
 			hardLimit = *qm.Limit
 		}
@@ -136,13 +113,21 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		rows := make([]row, 0, 256)
 
 		for int64(len(rows)) < hardLimit {
-			params.Set("offset", strconv.Itoa(offset))
+			// Calculate the page size for this specific request to not exceed hardLimit
+			limitForThisPage := pageSize
 			remaining := int(hardLimit - int64(len(rows)))
-			if remaining < pageSize {
-				params.Set("limit", strconv.Itoa(remaining))
-			} else {
-				params.Set("limit", strconv.Itoa(pageSize))
+			if remaining < limitForThisPage {
+				limitForThisPage = remaining
 			}
+
+			// Use the helper function to build params, ensuring a 1-based offset
+			params := buildAssuranceParamsFromQuery(
+				qm,
+				q.TimeRange.From.UnixMilli(),
+				q.TimeRange.To.UnixMilli(),
+				limitForThisPage,
+				offset+1, // The assurance API uses a 1-based offset
+			)
 
 			// Ensure token (using the same TLS behavior)
 			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
