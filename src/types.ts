@@ -25,7 +25,7 @@ export interface CatalystQuery extends DataQuery {
   siteId?: string;
   deviceId?: string;
   macAddress?: string;
-  priority?: CatalystPriority; // Use stricter type
+  priority?: CatalystPriority[]; // Use stricter type
   issueStatus?: CatalystIssueStatus; // Use stricter type
   aiDriven?: string; // YES,NO
 

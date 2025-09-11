@@ -189,6 +189,33 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			}
 			offset += pageSize
 		}
+		
+// Filter issues by priority on the backend if priorities are selected in the query
+		if len(qm.Priority) > 0 {
+			// Create a lookup map of the priorities selected by the user for efficient checking
+			selectedPriorities := make(map[string]struct{})
+			for _, p := range qm.Priority {
+				selectedPriorities[strings.ToUpper(p)] = struct{}{}
+			}
+
+			var filteredIssues []map[string]any
+			for _, issue := range allIssues {
+				// Extract the priority from the current issue, checking both 'priority' and 'severity' fields for safety
+				var issuePriority string
+				if p, ok := issue["priority"].(string); ok {
+					issuePriority = p
+				} else if s, ok := issue["severity"].(string); ok {
+					issuePriority = s
+				}
+
+				// If the issue's priority is in our lookup map, keep it
+				if _, found := selectedPriorities[strings.ToUpper(issuePriority)]; found {
+					filteredIssues = append(filteredIssues, issue)
+				}
+			}
+			// Replace the full list of issues with our new, filtered list
+			allIssues = filteredIssues
+		}
 
 		// NEW: Site Name Resolution Block
 		siteIDToNameMap := make(map[string]string)

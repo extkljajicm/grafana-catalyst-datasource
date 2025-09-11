@@ -136,7 +136,7 @@ type QueryModel struct {
 	SiteID      string       `json:"siteId,omitempty"`
 	DeviceID    string       `json:"deviceId,omitempty"`
 	MacAddress  string       `json:"macAddress,omitempty"`
-	Priority    string       `json:"priority,omitempty"`
+	Priority    []string       `json:"priority,omitempty"`
 	IssueStatus string       `json:"issueStatus,omitempty"`
 	AIDriven    StringOrBool `json:"aiDriven,omitempty"`
 	Limit       *int64       `json:"limit,omitempty"`

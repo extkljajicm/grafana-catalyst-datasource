@@ -99,9 +99,6 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 		v.Set("macAddress", s)
 	}
 
-	if p, ok := normalizePriority(q.Priority, q.Severity); ok {
-		v.Set("priority", p)
-	}
 	if st, ok := normalizeIssueStatus(q.IssueStatus, q.Status); ok {
 		v.Set("status", strings.ToLower(st))
 	}

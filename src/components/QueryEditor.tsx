@@ -39,7 +39,7 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
   const [siteId, setSiteId] = useState<string>(query.siteId ?? '');
   const [deviceId, setDeviceId] = useState<string>(query.deviceId ?? '');
   const [macAddress, setMacAddress] = useState<string>(query.macAddress ?? '');
-  const [priority, setPriority] = useState<CatalystPriority | ''>(query.priority ?? '');
+  const [priority, setPriority] = useState<CatalystPriority[]>(query.priority ?? []);
   const [issueStatus, setIssueStatus] = useState<CatalystIssueStatus | ''>(query.issueStatus ?? '');
   const [aiDriven, setAiDriven] = useState<string>(query.aiDriven ? 'true' : query.aiDriven === 'false' ? 'false' : '');
   const [limit, setLimit] = useState<number>(query.limit ?? 25);
@@ -59,7 +59,7 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
       dSiteId || '',
       dDeviceId || '',
       dMac || '',
-      dPriority || '',
+      (dPriority || []).join(','),
       dIssueStatus || '',
       dAiDriven || '',
       String(dLimit ?? 0),
@@ -76,7 +76,7 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
       siteId: dSiteId || undefined,
       deviceId: dDeviceId || undefined,
       macAddress: dMac || undefined,
-      priority: dPriority === '' ? undefined : dPriority,
+      priority: (dPriority && dPriority.length > 0) ? dPriority : undefined,
       issueStatus: dIssueStatus === '' ? undefined : dIssueStatus,
       aiDriven: dAiDriven === '' ? undefined : dAiDriven,
       limit: dLimit ?? 25,
@@ -128,9 +128,10 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery }) => {
         <Field label="Priority">
           <Select
             options={PRIORITY_OPTIONS}
-            value={PRIORITY_OPTIONS.find((o) => o.value === (priority || undefined)) ?? null}
-            onChange={(v) => setPriority(v?.value ?? '')}
+            value={PRIORITY_OPTIONS.filter(o => priority.includes(o.value!))}
+            onChange={(v) => setPriority(v.map((opt: SelectableValue<CatalystPriority>) => opt.value!))}
             isClearable
+            isMulti
             width={20}
           />
         </Field>
