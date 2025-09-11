@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2025-09-11
+
+### Added
+- **Multi-priority filtering**: The Query Editor now supports selecting multiple priorities (e.g., P1 and P2) to filter issues.
+
+### Changed
+- **Priority filtering mechanism**: Due to an API limitation, multi-priority filtering is now handled within the plugin. The datasource fetches all issues for the selected time range and then applies the priority filters on the backend before returning results to Grafana.
+
 ## [1.0.2] - 2025-09-03
 
 ### Fixed
