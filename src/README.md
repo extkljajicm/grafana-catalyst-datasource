@@ -32,8 +32,13 @@ Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly fro
 
 ## Configuration (Data Source)
 
-- **Base URL** — `https://<host>` **or** `https://<host>/dna/intent/api/v1`  
-  (Any reverse-proxy prefix **before** `/dna` is preserved.)
+- **Base URL** — The base HTTP endpoint for your Cisco Catalyst Center instance. The plugin will automatically append the correct API paths (e.g., `/dna/system/api/v1/auth/token`).
+  
+  | ✅ Good | ❌ Bad |
+  | :--- | :--- |
+  | `https://catalyst.example.com` | `https://catalyst.example.com/dna` |
+  | `https://proxy.corp/catalyst` | `https://catalyst.example.com/dna/intent/api` |
+
 - **Skip TLS verification** — only for self-signed certs (use with care)
 - **Username / Password** — used by backend to obtain a short-lived `X-Auth-Token`
 - **API Token (override)** — optional; paste an existing token to bypass login

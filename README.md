@@ -74,7 +74,7 @@ git commit -m "feat: concise summary"
 git push -u origin feat/my-change
 ```
 
-Keep `CHANGELOG.md` updated; release notes are derived from it.
+Keep `CHANGELOG.md` updated. Commits should follow the [Conventional Commits](https://www.conventionalcommits.org/) specification to facilitate release note generation. The changelog is updated manually.
 
 ---
 
