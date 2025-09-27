@@ -13,25 +13,38 @@ import (
 	log "github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
+// tokenManager handles the acquisition and caching of authentication tokens.
+// It ensures that a valid token is available for API requests, refreshing it
+// automatically when it expires. It supports both username/password credentials
+// and manual token overrides. The cache is keyed by datasource instance UID
+// to support multiple instances of the datasource.
 type tokenManager struct {
 	mu    sync.Mutex
 	cache map[string]tokenEntry // key: instance UID
 }
 
+// newTokenManager creates a new token manager with an empty cache.
 func newTokenManager() *tokenManager {
 	return &tokenManager{
 		cache: make(map[string]tokenEntry),
 	}
 }
 
+// getToken retrieves a valid token for the given datasource instance.
+// It follows this order of precedence:
+//  1. Returns the manual API token from settings if provided.
+//  2. Returns a valid, non-expired token from the cache.
+//  3. If no valid token is found, it requests a new one using the provided
+//     username and password, then caches it with its expiry time.
 func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *InstanceSettings, client *http.Client) (string, error) {
-	// manual override
+	// 1. Manual override: if the user has configured a specific token, always use it.
 	if t := strings.TrimSpace(s.APIToken); t != "" {
 		return t, nil
 	}
 
 	now := time.Now().Unix()
 
+	// 2. Cache check: return a valid, non-expired token if one exists.
 	tm.mu.Lock()
 	if e, ok := tm.cache[instanceUID]; ok && now < e.ExpiresAt && strings.TrimSpace(e.Token) != "" {
 		t := e.Token
@@ -40,6 +53,7 @@ func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *Ins
 	}
 	tm.mu.Unlock()
 
+	// 3. New token request: if no credentials, we can't proceed.
 	if s.Username == "" || s.Password == "" {
 		return "", errors.New("no username/password provided; cannot obtain token")
 	}
@@ -65,18 +79,19 @@ func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *Ins
 		return "", errors.New("token endpoint returned non-2xx: " + resp.Status)
 	}
 
-	// Try to parse expiry from headers (optional)
+	// 4. Token extraction: The token can be in a header or the response body.
+	// Prefer the header if present.
 	if tok := strings.TrimSpace(resp.Header.Get("X-Auth-Token")); tok != "" {
 		if expAt, ok := parseExpiryFromHeaders(resp.Header); ok {
 			tm.setWithExpiry(instanceUID, tok, expAt)
 			return tok, nil
 		}
-		// Fallback to default if headers don’t tell us
+		// Fallback to default TTL if headers don't specify expiry.
 		tm.set(instanceUID, tok)
 		return tok, nil
 	}
 
-	// Fallback to body: token + optional expiry hints
+	// 5. Fallback to body: The token and expiry hints can also be in the JSON body.
 	var body struct {
 		Token         string `json:"Token"`
 		Token2        string `json:"token"`
@@ -98,27 +113,29 @@ func (tm *tokenManager) getToken(ctx context.Context, instanceUID string, s *Ins
 		return "", errors.New("token not found in response")
 	}
 
-	// Prefer header-derived expiry if present; otherwise try JSON signals
+	// Prefer header-derived expiry if present; otherwise try JSON signals.
 	if expAt, ok := parseExpiryFromHeaders(resp.Header); ok {
 		tm.setWithExpiry(instanceUID, tok, expAt)
 		return tok, nil
 	}
 
-	// Try common JSON fields
+	// Try common JSON fields for expiry.
 	if expAt, ok := deriveExpiryFromJSON(body); ok {
 		tm.setWithExpiry(instanceUID, tok, expAt)
 		return tok, nil
 	}
 
-	// Last resort: default TTL
+	// Last resort: if no expiry information is found, use a default TTL.
 	tm.set(instanceUID, tok)
 	return tok, nil
 }
 
+// set caches a token with a default TTL (Time To Live).
+// This is used as a fallback when the API response doesn't provide expiry info.
 func (tm *tokenManager) set(uid, token string) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	// Default TTL: 55 minutes
+	// Default TTL: 55 minutes, a safe duration for most token-based APIs.
 	tm.cache[uid] = tokenEntry{
 		Token:     token,
 		ExpiresAt: time.Now().Add(55 * time.Minute).Unix(),
@@ -126,12 +143,13 @@ func (tm *tokenManager) set(uid, token string) {
 }
 
 // setWithExpiry stores the token with an absolute expiry time (epoch seconds).
-// If expAt is in the past or too close, apply a conservative min TTL.
+// If the provided expiry time is in the past or too close to the present,
+// it applies a conservative minimum TTL to prevent caching an already-expired token.
 func (tm *tokenManager) setWithExpiry(uid, token string, expAt int64) {
 	const minTTL = 5 * time.Minute
 	now := time.Now()
 	if expAt <= now.Add(1*time.Minute).Unix() {
-		// Guard: if server-provided expiry is missing/invalid/too soon, default to min TTL
+		// Guard: if server-provided expiry is missing, invalid, or too soon, default to a safe minimum TTL.
 		expAt = now.Add(minTTL).Unix()
 	}
 	tm.mu.Lock()
@@ -144,6 +162,9 @@ func (tm *tokenManager) setWithExpiry(uid, token string, expAt int64) {
 
 // ---- helpers: expiry parsing ----
 
+// parseExpiryFromHeaders attempts to determine the token's expiry time by inspecting
+// various standard and non-standard HTTP headers. It checks for headers that
+// specify a relative duration (e.g., Cache-Control: max-age) or an absolute time.
 func parseExpiryFromHeaders(h http.Header) (int64, bool) {
 	now := time.Now()
 
@@ -193,6 +214,7 @@ func parseExpiryFromHeaders(h http.Header) (int64, bool) {
 	return 0, false
 }
 
+// parseMaxAge extracts the 'max-age' value from a Cache-Control header string.
 func parseMaxAge(cacheControl string) (int64, bool) {
 	parts := strings.Split(cacheControl, ",")
 	for _, p := range parts {
@@ -207,6 +229,9 @@ func parseMaxAge(cacheControl string) (int64, bool) {
 	return 0, false
 }
 
+// deriveExpiryFromJSON attempts to determine the token's expiry time by inspecting
+// various common fields in a JSON response body. It handles both relative durations
+// (e.g., "expiresIn": 3600) and absolute timestamps.
 func deriveExpiryFromJSON(body struct {
 	Token         string `json:"Token"`
 	Token2        string `json:"token"`

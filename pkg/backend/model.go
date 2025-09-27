@@ -6,14 +6,26 @@ import (
 	"strings"
 )
 
+// InstanceSettings holds the configuration for a single instance of the datasource.
+// This includes the base URL for the Catalyst Center API and connection-specific
+// settings like TLS verification and credentials.
 type InstanceSettings struct {
-	BaseURL            string
+	// BaseURL is the root URL of the Catalyst Center API.
+	// Example: https://catalyst.example.com
+	BaseURL string
+	// InsecureSkipVerify allows the user to disable TLS certificate verification.
+	// This should only be used in development or for self-signed certificates.
 	InsecureSkipVerify bool
-	Username           string
-	Password           string
-	APIToken           string
+	// Username for API authentication.
+	Username string
+	// Password for API authentication.
+	Password string
+	// APIToken allows for manual override of the token, bypassing username/password auth.
+	APIToken string
 }
 
+// ParseInstanceSettings unmarshals and validates the datasource instance settings
+// from the Grafana plugin context.
 func ParseInstanceSettings(jsonData json.RawMessage, secureData map[string]string) (*InstanceSettings, error) {
 	var jd struct {
 		BaseURL            string `json:"baseUrl"`
@@ -31,11 +43,14 @@ func ParseInstanceSettings(jsonData json.RawMessage, secureData map[string]strin
 	return s, nil
 }
 
-// dnacPrefix extracts any reverse-proxy prefix that appears BEFORE the /dna path.
+// dnacPrefix extracts any reverse-proxy prefix that appears BEFORE the /dna path segment.
+// This is crucial for ensuring API calls are correctly routed when Catalyst Center
+// is behind a reverse proxy.
 // Example:
-//   "/proxy/dnac/dna/intent/api/v1" -> "/proxy/dnac"
-//   "/dna/intent/api/v1"            -> ""
-//   "/something" (no /dna)          -> ""
+//
+//	"/proxy/dnac/dna/intent/api/v1" -> "/proxy/dnac"
+//	"/dna/intent/api/v1"            -> ""
+//	"/something" (no /dna)          -> ""
 func dnacPrefix(p string) string {
 	if p == "" {
 		return ""
@@ -58,7 +73,9 @@ func dnacPrefix(p string) string {
 	return strings.TrimRight(prefix, "/")
 }
 
-// TokenURL always points to <prefix>/dna/system/api/v1/auth/token
+// TokenURL constructs the full URL for the authentication token endpoint,
+// preserving any reverse proxy prefix from the base URL.
+// It always points to <prefix>/dna/system/api/v1/auth/token.
 func TokenURL(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -71,7 +88,9 @@ func TokenURL(base string) (string, error) {
 	return u.String(), nil
 }
 
-// IssuesURL always points to <prefix>/dna/data/api/v1/assuranceIssues
+// IssuesURL constructs the full URL for the issues/alerts endpoint,
+// preserving any reverse proxy prefix.
+// It always points to <prefix>/dna/data/api/v1/assuranceIssues.
 func IssuesURL(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -84,7 +103,9 @@ func IssuesURL(base string) (string, error) {
 	return u.String(), nil
 }
 
-// SiteURL always points to <prefix>/dna/intent/api/v1/site
+// SiteURL constructs the full URL for the site lookup endpoint,
+// preserving any reverse proxy prefix.
+// It always points to <prefix>/dna/intent/api/v1/site.
 func SiteURL(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -97,7 +118,10 @@ func SiteURL(base string) (string, error) {
 	return u.String(), nil
 }
 
-// StringOrBool accepts boolean or string JSON and preserves a normalized string form.
+// StringOrBool is a custom type that can unmarshal both boolean (true/false)
+// and string ("true", "false", "yes", "no") values from JSON into a normalized
+// string representation. This provides flexibility for API fields that might
+// return booleans in different formats.
 type StringOrBool string
 
 func (v *StringOrBool) UnmarshalJSON(b []byte) error {
@@ -131,28 +155,36 @@ func (v *StringOrBool) UnmarshalJSON(b []byte) error {
 
 func (v StringOrBool) String() string { return string(v) }
 
+// QueryModel represents the query structure sent from the frontend.
+// It includes all the filters and options available in the query editor.
 type QueryModel struct {
 	QueryType   string       `json:"queryType"`
 	SiteID      string       `json:"siteId,omitempty"`
 	DeviceID    string       `json:"deviceId,omitempty"`
 	MacAddress  string       `json:"macAddress,omitempty"`
-	Priority    []string       `json:"priority,omitempty"`
+	Priority    []string     `json:"priority,omitempty"`
 	IssueStatus string       `json:"issueStatus,omitempty"`
 	AIDriven    StringOrBool `json:"aiDriven,omitempty"`
 	Limit       *int64       `json:"limit,omitempty"`
 	RefID       string       `json:"refId,omitempty"`
-	Enrich      bool         `json:"enrich,omitempty"`
+	// Enrich, when true, tells the backend to perform additional API calls
+	// to enrich the data, for example, by resolving site IDs to site names.
+	Enrich bool `json:"enrich,omitempty"`
 
-	// Optional aliases for backward-compat in param builder (if used)
+	// Optional aliases for backward-compatibility in the parameter builder.
+	// The frontend normalizes to the fields above.
 	Severity string `json:"severity,omitempty"`
 	Status   string `json:"status,omitempty"`
 }
 
+// tokenEntry represents a cached authentication token and its expiry time.
 type tokenEntry struct {
 	Token     string
-	ExpiresAt int64 // epoch seconds
+	ExpiresAt int64 // Unix epoch seconds
 }
 
+// IssuesEnvelope is the expected structure of the main issues API response.
+// The actual issues are contained within the 'response' field.
 type IssuesEnvelope struct {
 	Response []map[string]any `json:"response"`
 }

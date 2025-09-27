@@ -1,3 +1,7 @@
+// Package backend contains the core logic for the Catalyst datasource.
+// This file, params.go, is responsible for converting the frontend query model
+// into the URL query parameters expected by the Catalyst Center API. It handles
+// normalization, validation, and formatting of filter values.
 package backend
 
 import (
@@ -6,13 +10,16 @@ import (
 	"strings"
 )
 
-// Allowed sets
+// Allowed value sets for validation and normalization.
 var (
-	allowedPriority    = map[string]struct{}{"P1": {}, "P2": {}, "P3": {}, "P4": {}}
+	// allowedPriority defines the valid priority values for the API.
+	allowedPriority = map[string]struct{}{"P1": {}, "P2": {}, "P3": {}, "P4": {}}
+	// allowedIssueStatus defines the valid status values for the API.
 	allowedIssueStatus = map[string]struct{}{"ACTIVE": {}, "RESOLVED": {}, "IGNORED": {}}
 )
 
-// normalizePriority returns a valid P1..P4 if present, falling back from severity if needed.
+// normalizePriority returns a valid priority string (P1-P4) if the input
+// matches a known value. It checks both 'priority' and the legacy 'severity' fields.
 func normalizePriority(priority, severity string) (string, bool) {
 	p := strings.ToUpper(strings.TrimSpace(priority))
 	if _, ok := allowedPriority[p]; ok {
@@ -25,7 +32,8 @@ func normalizePriority(priority, severity string) (string, bool) {
 	return "", false
 }
 
-// normalizeIssueStatus returns a valid status if present, falling back from the legacy status field if needed.
+// normalizeIssueStatus returns a valid status string if the input matches a known
+// value. It checks both 'issueStatus' and the legacy 'status' fields.
 func normalizeIssueStatus(issueStatus, status string) (string, bool) {
 	is := strings.ToUpper(strings.TrimSpace(issueStatus))
 	if _, ok := allowedIssueStatus[is]; ok {
@@ -38,7 +46,8 @@ func normalizeIssueStatus(issueStatus, status string) (string, bool) {
 	return "", false
 }
 
-// normalizeBoolish turns various inputs into "true"/"false".
+// normalizeBoolish converts various string representations of a boolean
+// (e.g., "true", "yes", "1") into a canonical "true" or "false" string.
 func normalizeBoolish(s string) (string, bool) {
 	v := strings.ToLower(strings.TrimSpace(s))
 	switch v {
@@ -51,7 +60,8 @@ func normalizeBoolish(s string) (string, bool) {
 	}
 }
 
-// clampLimit enforces sane bounds while preserving explicit choices.
+// clampLimit enforces sane bounds on the limit parameter, preventing excessively
+// large or invalid values from being sent to the API.
 func clampLimit(n, def, min, max int) int {
 	if n <= 0 {
 		return def
@@ -65,11 +75,13 @@ func clampLimit(n, def, min, max int) int {
 	return n
 }
 
-// buildAssuranceParamsFromQuery converts a QueryModel + paging + optional time range into ?k=v params.
-// - Skips empty/invalid filters
-// - Maps severity→priority if priority empty
-// - Maps aiDriven string-ish to boolean string
-// - Enforces one-based offset (caller must pass the correct offset)
+// buildAssuranceParamsFromQuery converts a QueryModel from the frontend into a
+// url.Values map suitable for encoding as URL query parameters.
+// It performs the following key operations:
+// - Sets pagination parameters ('limit' and 'offset').
+// - Adds time range filters ('startTime', 'endTime') if provided.
+// - Adds normalized and validated filters for site, device, status, etc.
+// - Skips any empty or invalid filter values to create a clean API request.
 func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageSize, offset int) url.Values {
 	v := url.Values{}
 
@@ -97,6 +109,19 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 	}
 	if s := strings.TrimSpace(q.MacAddress); s != "" {
 		v.Set("macAddress", s)
+	}
+
+	// Handle Priority: The API expects a comma-separated string.
+	if len(q.Priority) > 0 {
+		var validPriorities []string
+		for _, p := range q.Priority {
+			if norm, ok := normalizePriority(p, ""); ok {
+				validPriorities = append(validPriorities, norm)
+			}
+		}
+		if len(validPriorities) > 0 {
+			v.Set("priority", strings.Join(validPriorities, ","))
+		}
 	}
 
 	if st, ok := normalizeIssueStatus(q.IssueStatus, q.Status); ok {

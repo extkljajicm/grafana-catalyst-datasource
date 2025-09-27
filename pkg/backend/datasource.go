@@ -1,3 +1,4 @@
+// Package backend contains the core logic for the Catalyst datasource.
 package backend
 
 import (
@@ -16,22 +17,30 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
+// Datasource is the main backend implementation for the Catalyst datasource.
+// It handles all backend operations: querying data, checking health, and
+// processing resource calls.
 type Datasource struct {
 	tm *tokenManager
 }
 
+// dsInstance represents a single configured instance of the datasource.
+// It holds the parsed settings and the unique instance UID.
 type dsInstance struct {
 	Settings *InstanceSettings
 	UID      string
 }
 
+// NewDatasource creates a new datasource instance with its own token manager.
 func NewDatasource() *Datasource {
 	return &Datasource{
 		tm: newTokenManager(),
 	}
 }
 
-// Build an HTTP client honoring InsecureSkipVerify for this instance.
+// httpClientFor creates an HTTP client that respects the InsecureSkipVerify setting
+// for the given datasource instance. This is crucial for environments with
+// self-signed certificates.
 func (d *Datasource) httpClientFor(s *InstanceSettings) *http.Client {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.InsecureSkipVerify}, //nolint:gosec
@@ -41,6 +50,8 @@ func (d *Datasource) httpClientFor(s *InstanceSettings) *http.Client {
 
 // ---- helpers to read instance settings directly from PluginContext ----
 
+// getInstanceFromPluginContext retrieves and parses the settings for the current
+// datasource instance from the plugin context provided by Grafana.
 func getInstanceFromPluginContext(pc backend.PluginContext) (*dsInstance, error) {
 	ds := pc.DataSourceInstanceSettings
 	if ds == nil {
@@ -58,6 +69,14 @@ func getInstanceFromPluginContext(pc backend.PluginContext) (*dsInstance, error)
 
 // ---- QueryData ----
 
+// QueryData is the primary method for handling data queries from Grafana panels.
+// It executes the following steps:
+//  1. Parses the query from the frontend.
+//  2. Paginates through the Catalyst Center API to fetch all relevant issues,
+//     respecting the user-defined limit.
+//  3. Handles token acquisition and automatic refresh on 401/403 errors.
+//  4. Optionally enriches the data by resolving site IDs to names if the `enrich` flag is set.
+//  5. Transforms the API response into a Grafana data.Frame.
 func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	resp := backend.NewQueryDataResponse()
 
@@ -71,6 +90,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	for _, q := range req.Queries {
 		dr := backend.DataResponse{}
 
+		// 1. Unmarshal the query model sent from the frontend.
 		var qm QueryModel
 		if err := json.Unmarshal(q.JSON, &qm); err != nil {
 			dr.Error = fmt.Errorf("invalid query model: %w", err)
@@ -90,6 +110,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			continue
 		}
 
+		// 2. Set up pagination. We'll loop until we either hit the hard limit
+		//    or the API returns fewer results than the page size.
 		pageSize := 25
 		offset := 0
 		var hardLimit int64 = 25
@@ -110,9 +132,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			Rule     string
 			Details  string
 		}
-		// NEW: Renamed from 'rows' to 'issueRows' for clarity
 		issueRows := make([]row, 0, 256)
-		// NEW: This will hold the raw issue data for enrichment
 		allIssues := make([]map[string]any, 0, 256)
 
 		for int64(len(allIssues)) < hardLimit {
@@ -130,6 +150,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				offset+1,
 			)
 
+			// 3. Get a valid token, either from cache or by fetching a new one.
 			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
 			if err != nil {
 				dr.Error = fmt.Errorf("token: %w", err)
@@ -148,9 +169,11 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			body, _ := io.ReadAll(httpResp.Body)
 			httpResp.Body.Close()
 
+			// If the token has expired, the API will return 401 or 403.
+			// In this case, we force a token refresh and retry the request once.
 			if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
 				log.DefaultLogger.Warn("Unauthorized; refreshing token and retrying")
-				d.tm.set(inst.UID, "") // force refresh
+				d.tm.set(inst.UID, "") // Force refresh by clearing the cached token.
 				token, err = d.tm.getToken(ctx, inst.UID, settings, httpClient)
 				if err != nil {
 					dr.Error = fmt.Errorf("token refresh: %w", err)
@@ -177,47 +200,24 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
 				arr = env.Response
 			} else {
+				// Some API versions might return a raw array instead of an envelope.
 				_ = json.Unmarshal(body, &arr)
 			}
 			if len(arr) == 0 {
+				// No more results, exit the pagination loop.
 				break
 			}
 
 			allIssues = append(allIssues, arr...)
 			if len(arr) < pageSize {
+				// The API returned fewer items than we asked for, so this is the last page.
 				break
 			}
 			offset += pageSize
 		}
 
-		// Filter issues by priority on the backend if priorities are selected in the query
-		if len(qm.Priority) > 0 {
-			// Create a lookup map of the priorities selected by the user for efficient checking
-			selectedPriorities := make(map[string]struct{})
-			for _, p := range qm.Priority {
-				selectedPriorities[strings.ToUpper(p)] = struct{}{}
-			}
-
-			var filteredIssues []map[string]any
-			for _, issue := range allIssues {
-				// Extract the priority from the current issue, checking both 'priority' and 'severity' fields for safety
-				var issuePriority string
-				if p, ok := issue["priority"].(string); ok {
-					issuePriority = p
-				} else if s, ok := issue["severity"].(string); ok {
-					issuePriority = s
-				}
-
-				// If the issue's priority is in our lookup map, keep it
-				if _, found := selectedPriorities[strings.ToUpper(issuePriority)]; found {
-					filteredIssues = append(filteredIssues, issue)
-				}
-			}
-			// Replace the full list of issues with our new, filtered list
-			allIssues = filteredIssues
-		}
-
-		// NEW: Site Name Resolution Block
+		// 4. Site Name Enrichment: If the 'enrich' flag is set, resolve site IDs to names.
+		// This is done after collecting all issues to batch the site ID lookups into one API call.
 		siteIDToNameMap := make(map[string]string)
 		if qm.Enrich && len(allIssues) > 0 {
 			uniqueSiteIDs := make(map[string]struct{})
@@ -240,8 +240,9 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				}
 			}
 		}
-		// NEW: End Site Name Resolution Block
 
+		// 5. Data Transformation: Convert the raw API response into a structured format
+		//    that can be used to build the Grafana data.Frame.
 		for _, it := range allIssues {
 			getStr := func(k string) string {
 				if v, ok := it[k]; ok && v != nil {
@@ -267,9 +268,9 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			}
 
 			siteID := getStr("siteId")
-			siteName := siteID // Fallback to ID
+			siteName := siteID // Fallback to ID if enrichment is disabled or fails.
 			if name, ok := siteIDToNameMap[siteID]; ok {
-				siteName = name // Use name if found
+				siteName = name // Use resolved name if available.
 			}
 
 			r := row{
@@ -291,7 +292,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			issueRows = append(issueRows, r)
 		}
 
-		// Build frame
+		// 6. Build the Grafana data.Frame, which is the final structure that gets
+		//    sent back to the frontend for rendering.
 		frame := data.NewFrame(q.RefID)
 		fTime := data.NewField("Time", nil, make([]time.Time, 0, len(issueRows)))
 		fID := data.NewField("Issue ID", nil, make([]string, 0, len(issueRows)))
@@ -341,14 +343,15 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	return resp, nil
 }
 
-// NEW: Helper function to get site names from a list of IDs
+// getSiteNamesByID performs a batch lookup to resolve a list of site IDs to their
+// corresponding site names. This is more efficient than making one request per site.
 func (d *Datasource) getSiteNamesByID(ctx context.Context, httpClient *http.Client, inst *dsInstance, siteIDs []string) (map[string]string, error) {
 	siteURL, err := SiteURL(inst.Settings.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("bad site baseUrl: %w", err)
 	}
 
-	// The Catalyst Center API uses a comma-separated list for multiple IDs
+	// The Catalyst Center API supports fetching multiple sites by providing a comma-separated list of IDs.
 	params := url.Values{}
 	params.Set("siteId", strings.Join(siteIDs, ","))
 	reqURL := siteURL + "?" + params.Encode()
@@ -389,6 +392,9 @@ func (d *Datasource) getSiteNamesByID(ctx context.Context, httpClient *http.Clie
 
 // ---- CheckHealth ----
 
+// CheckHealth is called by Grafana to verify that the datasource is configured
+// correctly and can connect to the Catalyst Center API. It performs a lightweight
+// check by attempting to fetch a token and then making a simple API call.
 func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	inst, err := getInstanceFromPluginContext(req.PluginContext)
 	if err != nil {
@@ -400,6 +406,7 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 	settings := inst.Settings
 	httpClient := d.httpClientFor(settings)
 
+	// 1. Verify that we can obtain an authentication token.
 	if _, err := d.tm.getToken(ctx, inst.UID, settings, httpClient); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
@@ -415,6 +422,7 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 		}, nil
 	}
 
+	// 2. Make a lightweight test query to the issues endpoint.
 	u := issuesURL + "?limit=1"
 	reqHTTP, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	tok, _ := d.tm.getToken(ctx, inst.UID, settings, httpClient)
@@ -444,6 +452,9 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 
 // ---- CallResource passthrough (honors TLS flag as well) ----
 
+// CallResource handles custom API requests from the frontend, typically used for
+// things like fetching values for template variables. This acts as a secure
+// proxy to the Catalyst Center API.
 func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	inst, err := getInstanceFromPluginContext(req.PluginContext)
 	if err != nil {
@@ -457,6 +468,7 @@ func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResource
 
 	switch req.Path {
 	case "issues":
+		// The 'issues' resource path is used by the frontend to populate template variables.
 		return d.resourceIssues(ctx, inst, req, sender, httpClient)
 	default:
 		return sender.Send(&backend.CallResourceResponse{
@@ -466,6 +478,8 @@ func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResource
 	}
 }
 
+// resourceIssues handles requests to the /issues resource path. It forwards the
+// query parameters from the frontend to the Catalyst Center issues API.
 func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, httpClient *http.Client) error {
 	issuesURL, err := IssuesURL(inst.Settings.BaseURL)
 	if err != nil {
@@ -507,6 +521,8 @@ func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *
 
 // ---- helpers ----
 
+// firstNonEmpty returns the first non-empty string from a list of arguments.
+// This is useful for coalescing values from multiple possible API fields.
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if strings.TrimSpace(v) != "" {
@@ -516,6 +532,8 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// firstNonZero returns the first non-zero int64 from a list of arguments.
+// Useful for finding a valid timestamp from multiple potential fields.
 func firstNonZero(vals ...int64) int64 {
 	for _, v := range vals {
 		if v != 0 {
