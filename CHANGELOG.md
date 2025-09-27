@@ -1,9 +1,29 @@
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [1.0.4] - 2025-09-27
+
+### Changed
+- Added and improved code comments for all frontend files:
+  - `src/components/ConfigEditor.tsx`
+  - `src/components/QueryEditor.tsx`
+  - `src/components/VariableQueryEditor.tsx`
+  - `src/module.ts`
+  - `src/types.ts` (already well-documented, no changes needed)
+- Added and improved code comments for backend files:
+  - `pkg/backend/datasource.go`
+  - `pkg/backend/token.go`
+  - `pkg/backend/model.go`
+  - `pkg/backend/params.go`
+
+### Notes
+- No logic changes; only documentation and comments for clarity and onboarding.
+- Ensures codebase is self-documenting for new contributors.
 
 ## [1.0.3] - 2025-09-11
 
