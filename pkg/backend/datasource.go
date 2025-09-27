@@ -189,8 +189,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			}
 			offset += pageSize
 		}
-		
-// Filter issues by priority on the backend if priorities are selected in the query
+
+		// Filter issues by priority on the backend if priorities are selected in the query
 		if len(qm.Priority) > 0 {
 			// Create a lookup map of the priorities selected by the user for efficient checking
 			selectedPriorities := make(map[string]struct{})
@@ -219,7 +219,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 
 		// NEW: Site Name Resolution Block
 		siteIDToNameMap := make(map[string]string)
-		if len(allIssues) > 0 {
+		if qm.Enrich && len(allIssues) > 0 {
 			uniqueSiteIDs := make(map[string]struct{})
 			for _, issue := range allIssues {
 				if siteID, ok := issue["siteId"].(string); ok && siteID != "" {
