@@ -1,50 +1,54 @@
 import type { DataQuery, DataSourceJsonData } from '@grafana/data';
 
 /**
- * Single query type for MVP.
+ * The only query type supported in this version of the plugin.
+ * This corresponds to fetching issues/alerts from the Catalyst Center API.
  */
 export type QueryType = 'alerts';
 
-// Define specific types for query parameters
+// Define specific, strict types for query parameters to improve type safety.
 export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
 export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
 
 /**
- * Panel query model.
+ * Represents the query structure that is sent from the frontend query editor
+ * to the backend.
  *
  * NOTE:
- * - DNAC uses `priority` (P1..P4) and `issueStatus` (ACTIVE/IGNORED/RESOLVED).
- * - Some UI code might still refer to `severity` and `status`. We keep them here
- * as optional aliases so the editors compile. The datasource/backend will
- * normalize to `priority` / `issueStatus`.
+ * - The Catalyst Center API uses `priority` (P1..P4) and `issueStatus` (ACTIVE/IGNORED/RESOLVED).
+ * - The `severity` and `status` fields are included as optional aliases for backward
+ *   compatibility or UI convenience. The backend is responsible for normalizing these
+ *   to the correct API parameters.
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
 
-  // DNAC filters
+  // Filters that map directly to Catalyst Center API parameters.
   siteId?: string;
   deviceId?: string;
   macAddress?: string;
-  priority?: CatalystPriority[]; // Use stricter type
-  issueStatus?: CatalystIssueStatus; // Use stricter type
-  aiDriven?: string; // YES,NO
+  priority?: CatalystPriority[];
+  issueStatus?: CatalystIssueStatus;
+  aiDriven?: string; // Should be 'true' or 'false' as a string.
 
-  // UI-friendly aliases (optional). Frontend can map these to DNAC fields.
+  // UI-friendly aliases (optional). The frontend can map these to the main fields.
   severity?: string; // alias for priority
   status?: string; // alias for issueStatus
 
-  // Hard cap on results (applied after pagination merge)
+  // A hard cap on the total number of results to return. This is applied by the
+  // backend after it has paginated through the API to collect all issues.
   limit?: number;
 
   /**
-   * When true, the backend will perform extra API calls to enrich issues
-   * with details like device/MAC info. This can impact performance.
+   * When true, the backend will perform extra API calls to enrich the data.
+   * For example, it will resolve site IDs to their corresponding site names.
+   * This can improve readability but may impact query performance.
    */
   enrich?: boolean;
 }
 
 /**
- * Defaults for new queries.
+ * Defines the default values for a new query in the query editor.
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
   queryType: 'alerts',
@@ -52,31 +56,42 @@ export const DEFAULT_QUERY: Partial<CatalystQuery> = {
   enrich: false,
 };
 
+/**
+ * Represents the non-sensitive configuration data for the datasource instance,
+ * stored as JSON in the Grafana database.
+ */
 export interface CatalystJsonData extends DataSourceJsonData {
   /**
-   * Example: https://dnac.example.com/dna/intent/api/v1
+   * The base URL of the Catalyst Center API.
+   * Example: https://catalyst.example.com
    */
   baseUrl?: string;
 
   /**
-   * When true, the backend will not verify TLS certs.
-   * For lab/self-signed environments only.
+   * If true, the backend will not verify the TLS certificate of the API endpoint.
+   * This is intended for development or lab environments with self-signed certs.
    */
   insecureSkipVerify?: boolean;
 }
 
+/**
+ * Represents the sensitive configuration data for the datasource instance.
+ * These values are encrypted by Grafana and stored in secureJsonData.
+ */
 export interface CatalystSecureJsonData {
   username?: string;
   password?: string;
   /**
-   * Optional manual token override (X-Auth-Token). If provided, backend will
-   * prefer this over performing the username/password token exchange.
+   * An optional, manually provided authentication token (X-Auth-Token).
+   * If this is set, the backend will use it directly and bypass the
+   * username/password authentication flow.
    */
   apiToken?: string;
 }
 
 /**
- * Variable editor query model for templating.
+ * Defines the structure of queries used in the template variable editor.
+ * Each type corresponds to a function that can be called to populate a variable.
  */
 export type CatalystVariableQuery =
   | { type: 'priorities' }

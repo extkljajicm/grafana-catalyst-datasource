@@ -1,29 +1,42 @@
+// ConfigEditor: Grafana plugin configuration UI for Catalyst datasource.
+// Allows users to set connection details, credentials, and security options.
+// All logic is handled via controlled components and Grafana's plugin API.
 import React, { ChangeEvent } from 'react';
 import type { DataSourcePluginOptionsEditorProps } from '@grafana/data';
 import { Field, Input, SecretInput, Switch } from '@grafana/ui';
 import type { CatalystJsonData } from '../types';
 
+// SecureShape: Structure for secure fields (not stored in plain config)
 type SecureShape = {
   username?: string;
   password?: string;
   apiToken?: string;
 };
 
+// Props: Grafana passes plugin config and change handler
 type Props = DataSourcePluginOptionsEditorProps<CatalystJsonData, SecureShape>;
 
+// ConfigEditor main component
 export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
+  // Destructure config objects for clarity
   const { jsonData, secureJsonData, secureJsonFields } = options;
 
+  // setJson: Update non-secure config fields
   const setJson = (patch: Partial<CatalystJsonData>) =>
     onOptionsChange({ ...options, jsonData: { ...(jsonData ?? {}), ...patch } });
 
+  // setSecure: Update secure config fields (username, password, token)
   const setSecure = (patch: Partial<SecureShape>) =>
     onOptionsChange({ ...options, secureJsonData: { ...(secureJsonData ?? {}), ...patch } });
 
+  // Handler: Update base URL field
   const onBaseUrl = (e: ChangeEvent<HTMLInputElement>) => setJson({ baseUrl: e.currentTarget.value });
+  // Handler: Update username field
   const onUser = (e: ChangeEvent<HTMLInputElement>) => setSecure({ username: e.currentTarget.value });
 
+  // Handler: Update password field
   const onPass = (e: ChangeEvent<HTMLInputElement>) => setSecure({ password: e.currentTarget.value });
+  // Handler: Reset password (marks as not configured)
   const onResetPass = () =>
     onOptionsChange({
       ...options,
@@ -31,7 +44,9 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       secureJsonData: { ...(options.secureJsonData ?? {}), password: '' },
     });
 
+  // Handler: Update API token field
   const onToken = (e: ChangeEvent<HTMLInputElement>) => setSecure({ apiToken: e.currentTarget.value });
+  // Handler: Reset API token (marks as not configured)
   const onResetToken = () =>
     onOptionsChange({
       ...options,
@@ -39,8 +54,10 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       secureJsonData: { ...(options.secureJsonData ?? {}), apiToken: '' },
     });
 
+  // Render: Form fields for all config options
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Catalyst Base URL field. Proxy prefixes before /dna are preserved. */}
       <Field label="Catalyst Base URL" description="https://<host> . Proxy prefixes before /dna are preserved.">
         <Input
           value={jsonData?.baseUrl ?? ''}
@@ -50,6 +67,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
         />
       </Field>
 
+      {/* TLS verification toggle */}
       <Field label="Skip TLS verification">
         <Switch
           value={!!jsonData?.insecureSkipVerify}
@@ -57,6 +75,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
         />
       </Field>
 
+      {/* Username field (secure) */}
       <Field label="Username">
         <Input
           value={secureJsonData?.username ?? ''}
@@ -66,6 +85,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
         />
       </Field>
 
+      {/* Password field (secure, resettable) */}
       <Field label="Password">
         <SecretInput
           isConfigured={!!secureJsonFields?.password}
@@ -77,6 +97,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
         />
       </Field>
 
+      {/* API Token field (secure, optional, overrides password) */}
       <Field label="API Token (override)">
         <SecretInput
           isConfigured={!!secureJsonFields?.apiToken}
@@ -91,4 +112,5 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
   );
 };
 
+// Default export for plugin registration
 export default ConfigEditor;
