@@ -97,8 +97,82 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			resp.Responses[q.RefID] = dr
 			continue
 		}
-		if strings.TrimSpace(qm.QueryType) != "alerts" {
-			dr.Frames = append(dr.Frames, data.NewFrame(q.RefID))
+		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
+			siteHealthURL, err := SiteHealthURL(settings.BaseURL)
+			if err != nil {
+				dr.Error = err
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			pageSize := 25
+			offset := 0
+			params := buildSiteHealthParamsFromQuery(qm, pageSize, offset+1)
+			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
+			if err != nil {
+				dr.Error = fmt.Errorf("token: %w", err)
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			reqURL := siteHealthURL + "?" + params.Encode()
+			httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+			httpReq.Header.Set("X-Auth-Token", token)
+			httpResp, err := httpClient.Do(httpReq)
+			if err != nil {
+				dr.Error = fmt.Errorf("site-health request failed: %w", err)
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			body, _ := io.ReadAll(httpResp.Body)
+			httpResp.Body.Close()
+			if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+				dr.Error = fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			var env struct {
+				Response []map[string]any `json:"response"`
+			}
+			if err := json.Unmarshal(body, &env); err != nil {
+				dr.Error = fmt.Errorf("site-health response: %w", err)
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			// Filter by parentSiteName and siteName if set
+			filtered := env.Response
+			if qm.ParentSiteName != "" || qm.SiteName != "" {
+				filtered = make([]map[string]any, 0, len(env.Response))
+				for _, site := range env.Response {
+					if qm.ParentSiteName != "" && site["parentSiteName"] != qm.ParentSiteName {
+						continue
+					}
+					if qm.SiteName != "" && site["siteName"] != qm.SiteName {
+						continue
+					}
+					filtered = append(filtered, site)
+				}
+			}
+			// Build Grafana frames for selected metrics
+			frame := data.NewFrame(q.RefID)
+			for _, metric := range qm.Metrics {
+				f := data.NewField(metric, nil, make([]int64, 0, len(filtered)))
+				for _, site := range filtered {
+					if v, ok := site[metric]; ok {
+						switch x := v.(type) {
+						case float64:
+							f.Append(int64(x))
+						case int64:
+							f.Append(x)
+						case json.Number:
+							n, _ := x.Int64()
+							f.Append(n)
+						}
+					} else {
+						f.Append(0)
+					}
+				}
+				frame.Fields = append(frame.Fields, f)
+			}
+			dr.Frames = append(dr.Frames, frame)
 			resp.Responses[q.RefID] = dr
 			continue
 		}

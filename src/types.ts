@@ -4,7 +4,7 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
  * The only query type supported in this version of the plugin.
  * This corresponds to fetching issues/alerts from the Catalyst Center API.
  */
-export type QueryType = 'alerts';
+export type QueryType = 'alerts' | 'siteHealth';
 
 // Define specific, strict types for query parameters to improve type safety.
 export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
@@ -23,28 +23,25 @@ export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
 
-  // Filters that map directly to Catalyst Center API parameters.
+  // Common fields
+  endpoint?: string;
   siteId?: string;
+  limit?: number;
+
+  // Alerts-specific fields
   deviceId?: string;
   macAddress?: string;
   priority?: CatalystPriority[];
   issueStatus?: CatalystIssueStatus;
   aiDriven?: string; // Should be 'true' or 'false' as a string.
-
-  // UI-friendly aliases (optional). The frontend can map these to the main fields.
   severity?: string; // alias for priority
   status?: string; // alias for issueStatus
-
-  // A hard cap on the total number of results to return. This is applied by the
-  // backend after it has paginated through the API to collect all issues.
-  limit?: number;
-
-  /**
-   * When true, the backend will perform extra API calls to enrich the data.
-   * For example, it will resolve site IDs to their corresponding site names.
-   * This can improve readability but may impact query performance.
-   */
   enrich?: boolean;
+
+  // SiteHealth-specific fields
+  metric?: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 /**
@@ -66,6 +63,10 @@ export interface CatalystJsonData extends DataSourceJsonData {
    * Example: https://catalyst.example.com
    */
   baseUrl?: string;
+  /**
+   * The selected API endpoint for queries (e.g., 'alerts', 'siteHealth').
+   */
+  endpoint?: string;
 
   /**
    * If true, the backend will not verify the TLS certificate of the API endpoint.

@@ -158,23 +158,38 @@ func (v StringOrBool) String() string { return string(v) }
 // QueryModel represents the query structure sent from the frontend.
 // It includes all the filters and options available in the query editor.
 type QueryModel struct {
-	QueryType   string       `json:"queryType"`
-	SiteID      string       `json:"siteId,omitempty"`
-	DeviceID    string       `json:"deviceId,omitempty"`
-	MacAddress  string       `json:"macAddress,omitempty"`
-	Priority    []string     `json:"priority,omitempty"`
-	IssueStatus string       `json:"issueStatus,omitempty"`
-	AIDriven    StringOrBool `json:"aiDriven,omitempty"`
-	Limit       *int64       `json:"limit,omitempty"`
-	RefID       string       `json:"refId,omitempty"`
-	// Enrich, when true, tells the backend to perform additional API calls
-	// to enrich the data, for example, by resolving site IDs to site names.
-	Enrich bool `json:"enrich,omitempty"`
+	QueryType      string       `json:"queryType"`
+	SiteID         string       `json:"siteId,omitempty"`
+	DeviceID       string       `json:"deviceId,omitempty"`
+	MacAddress     string       `json:"macAddress,omitempty"`
+	Priority       []string     `json:"priority,omitempty"`
+	IssueStatus    string       `json:"issueStatus,omitempty"`
+	AIDriven       StringOrBool `json:"aiDriven,omitempty"`
+	Limit          *int64       `json:"limit,omitempty"`
+	RefID          string       `json:"refId,omitempty"`
+	Enrich         bool         `json:"enrich,omitempty"`
+	Severity       string       `json:"severity,omitempty"`
+	Status         string       `json:"status,omitempty"`
+	SiteType       string       `json:"siteType,omitempty"`
+	ParentSiteName string       `json:"parentSiteName,omitempty"`
+	SiteName       string       `json:"siteName,omitempty"`
+	Timestamp      *int64       `json:"timestamp,omitempty"`
+	Metrics        []string     `json:"metrics,omitempty"`
+	StartTime      string       `json:"startTime,omitempty"`
+	EndTime        string       `json:"endTime,omitempty"`
+}
 
-	// Optional aliases for backward-compatibility in the parameter builder.
-	// The frontend normalizes to the fields above.
-	Severity string `json:"severity,omitempty"`
-	Status   string `json:"status,omitempty"`
+// SiteHealthURL constructs the full URL for the site-health endpoint.
+func SiteHealthURL(base string) (string, error) {
+	u, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	prefix := dnacPrefix(u.Path)
+	u.Path = prefix + "/dna/intent/api/v1/site-health"
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
 }
 
 // tokenEntry represents a cached authentication token and its expiry time.

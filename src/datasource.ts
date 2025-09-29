@@ -18,13 +18,17 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 5; // variable helper only
 
 export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJsonData> {
+  instanceSettings: InstanceSettings;
   constructor(instanceSettings: InstanceSettings) {
     super(instanceSettings);
+    this.instanceSettings = instanceSettings;
   }
 
   // Returns the default query structure for new panels/targets.
-  getDefaultQuery(_: CoreApp): Partial<CatalystQuery> {
-    return DEFAULTS;
+  getDefaultQuery(app: CoreApp): Partial<CatalystQuery> {
+    // Use endpoint from config if available
+    const endpoint = this.instanceSettings.jsonData?.endpoint ?? 'alerts';
+    return { ...DEFAULTS, endpoint, queryType: endpoint === 'siteHealth' ? 'siteHealth' : 'alerts' };
   }
 
   // Prevents Grafana from executing empty or invalid queries.

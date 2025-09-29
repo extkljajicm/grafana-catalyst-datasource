@@ -2,6 +2,14 @@
 // This file, params.go, is responsible for converting the frontend query model
 // into the URL query parameters expected by the Catalyst Center API. It handles
 // normalization, validation, and formatting of filter values.
+
+// Package backend contains the core logic for the Catalyst datasource.
+// This file, params.go, is responsible for converting the frontend query model
+// into the URL query parameters expected by the Catalyst Center API. It handles
+// normalization, validation, and formatting of filter values.
+
+// (removed duplicate package and import statements)
+
 package backend
 
 import (
@@ -9,6 +17,31 @@ import (
 	"strconv"
 	"strings"
 )
+
+// buildSiteHealthParamsFromQuery converts a QueryModel into url.Values for the site-health endpoint.
+func buildSiteHealthParamsFromQuery(q QueryModel, pageSize, offset int) url.Values {
+	v := url.Values{}
+	v.Set("limit", strconv.Itoa(clampLimit(pageSize, 25, 1, 50)))
+	if offset < 1 {
+		offset = 1
+	}
+	v.Set("offset", strconv.Itoa(offset))
+	if s := strings.TrimSpace(q.SiteType); s != "" {
+		v.Set("siteType", s)
+	}
+	// Add time range if present
+	if q.StartTime != "" {
+		if ts, err := strconv.ParseInt(q.StartTime, 10, 64); err == nil && ts > 0 {
+			v.Set("startTime", strconv.FormatInt(ts, 10))
+		}
+	}
+	if q.EndTime != "" {
+		if ts, err := strconv.ParseInt(q.EndTime, 10, 64); err == nil && ts > 0 {
+			v.Set("endTime", strconv.FormatInt(ts, 10))
+		}
+	}
+	return v
+}
 
 // Allowed value sets for validation and normalization.
 var (

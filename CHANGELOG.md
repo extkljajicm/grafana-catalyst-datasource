@@ -1,10 +1,25 @@
 
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [1.1.0] - 2025-09-29
+
+### Added
+- **Endpoint filter feature:** Users can now select the API endpoint in the data source config, enabling support for multiple endpoints and dynamic query editor filters.
+- **Site Health endpoint support:** Added support for `/dna/intent/api/v1/site-health` to fetch overall health metrics for all sites, with filters for site type, limit, offset, timestamp, parent site name, and site name.
+- **Time series selection:** Query editor allows users to select which site health metrics to visualize as time series (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.).
+
+### Changed
+- Backend and frontend logic updated to support dynamic filters and endpoint selection without breaking existing functionality.
+
+### Notes
+- Existing issue/alerts endpoint and features remain unchanged.
+- This is a minor version bump due to new feature addition.
 
 ## [1.0.4] - 2025-09-27
 

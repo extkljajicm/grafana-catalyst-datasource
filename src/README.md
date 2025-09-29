@@ -8,9 +8,14 @@ Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly fro
 
 ---
 
+
 ## Features
 
-- Fetch issues from `/dna/data/api/v1/assuranceIssues`
+- **Endpoint selection:** Choose which Catalyst Center API endpoint to query (e.g., issues/alerts or site health) in the data source config.
+- **Site Health support:** Fetch overall health metrics for all sites from `/dna/intent/api/v1/site-health`.
+- **Dynamic filters:** Query editor adapts filters based on selected endpoint (e.g., site type, limit, offset, timestamp, parent site name, site name for site health).
+- **Time series selection:** Select which site health metrics to visualize (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.).
+- Fetch issues from `/dna/data/api/v1/assuranceIssues` (existing)
 - Pagination uses one-based offset
 - Filters: **Site**, **Device**, **MAC**, **Priority**, **Issue Status**, **AI-driven**, **Limit**
 - Variable support: **priorities**, **statuses**, **sites**, **devices**, **macs**
@@ -47,17 +52,27 @@ Click **Save & test** to verify connectivity.
 
 ---
 
+
 ## Query Editor (Panels)
 
-Fields:
-- **Query Type** — `alerts` (issues API)
-- **Site ID** — filter by site (UUID)
-- **Device ID** — filter by device (UUID)
-- **MAC Address** — optional MAC filter (`aa:bb:cc:dd:ee:ff`)
-- **Priority** — CSV: `P1,P2,P3,P4`
-- **Issue Status** — CSV: `ACTIVE,IGNORED,RESOLVED`
-- **AI Driven** — `YES`/`NO` (or blank for any)
-- **Limit** — maximum rows returned (default 100)
+Fields (dynamic based on endpoint):
+- **Endpoint** — select which API endpoint to query (e.g., issues/alerts, site health)
+- For **Site Health**:
+  - **Site Type** — filter by site type (`AREA`, `BUILDING`)
+  - **Limit** — max rows returned (1–50, default 25)
+  - **Offset** — pagination
+  - **Timestamp** — optional time filter
+  - **Parent Site Name** — filter by parent site name
+  - **Site Name** — filter by site name
+  - **Metrics** — select which site health metrics to visualize (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.)
+- For **Issues/Alerts** (existing):
+  - **Site ID** — filter by site (UUID)
+  - **Device ID** — filter by device (UUID)
+  - **MAC Address** — optional MAC filter (`aa:bb:cc:dd:ee:ff`)
+  - **Priority** — CSV: `P1,P2,P3,P4`
+  - **Issue Status** — CSV: `ACTIVE,IGNORED,RESOLVED`
+  - **AI Driven** — `YES`/`NO` (or blank for any)
+  - **Limit** — maximum rows returned (default 100)
 
 Variables are supported in text inputs.
 
@@ -67,6 +82,7 @@ Returned columns (for **Table** panels):
 - Device ID, MAC, Site ID, Rule, Details
 
 ---
+
 
 ## Variable Query Editor
 
