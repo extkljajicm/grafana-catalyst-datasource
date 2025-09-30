@@ -1,11 +1,25 @@
-
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [1.2.0] - 2025-09-30
+
+### Fixed
+- **Site Health Metrics:** Fixed an issue where `clientCount` and `healthScore` were returning zero due to incorrect metric name mapping in the backend.
+- **UI Duplication:** Resolved a UI bug where filter fields in the `siteHealth` query editor were duplicated.
+- **Build Process:** Corrected the build script to ensure the plugin logo is always included in the release package.
+- **Time Range Filtering:** Fixed a bug where the `siteHealth` endpoint was not correctly using the Grafana time range selector.
+
+### Added
+- **Expanded Site Health Filtering:** Added support for filtering by `siteId` and `parentSiteId` in the `siteHealth` query.
+- **Expanded Site Health Metrics:** The "Metrics" selector for `siteHealth` now includes all relevant metrics from the API documentation.
+
+### Changed
+- **Refactored Query Editor:** The `QueryEditor` component was refactored to use a single state object, improving maintainability.
+- **Improved Docker Workflow:** The build and deployment process now correctly uses `docker compose down` to ensure a clean environment.
 
 ## [1.1.0] - 2025-09-29
 

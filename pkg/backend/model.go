@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 )
 
 // InstanceSettings holds the configuration for a single instance of the datasource.
@@ -158,25 +160,24 @@ func (v StringOrBool) String() string { return string(v) }
 // QueryModel represents the query structure sent from the frontend.
 // It includes all the filters and options available in the query editor.
 type QueryModel struct {
-	QueryType      string       `json:"queryType"`
-	SiteID         string       `json:"siteId,omitempty"`
-	DeviceID       string       `json:"deviceId,omitempty"`
-	MacAddress     string       `json:"macAddress,omitempty"`
-	Priority       []string     `json:"priority,omitempty"`
-	IssueStatus    string       `json:"issueStatus,omitempty"`
-	AIDriven       StringOrBool `json:"aiDriven,omitempty"`
-	Limit          *int64       `json:"limit,omitempty"`
-	RefID          string       `json:"refId,omitempty"`
-	Enrich         bool         `json:"enrich,omitempty"`
-	Severity       string       `json:"severity,omitempty"`
-	Status         string       `json:"status,omitempty"`
-	SiteType       string       `json:"siteType,omitempty"`
-	ParentSiteName string       `json:"parentSiteName,omitempty"`
-	SiteName       string       `json:"siteName,omitempty"`
-	Timestamp      *int64       `json:"timestamp,omitempty"`
-	Metrics        []string     `json:"metrics,omitempty"`
-	StartTime      string       `json:"startTime,omitempty"`
-	EndTime        string       `json:"endTime,omitempty"`
+	QueryType      string   `json:"queryType"`
+	Limit          *int64   `json:"limit,omitempty"`
+	Priority       []string `json:"priority,omitempty"`
+	Status         []string `json:"status,omitempty"`
+	Device         string   `json:"device,omitempty"`
+	MAC            string   `json:"mac,omitempty"`
+	Site           string   `json:"site,omitempty"`
+	Rule           string   `json:"rule,omitempty"`
+	Enrich         bool     `json:"enrich,omitempty"`
+	SiteType       string   `json:"siteType,omitempty"`
+	ParentSiteName string   `json:"parentSiteName,omitempty"`
+	SiteName       string   `json:"siteName,omitempty"`
+	ParentSiteId   string   `json:"parentSiteId,omitempty"`
+	SiteId         string   `json:"siteId,omitempty"`
+	Metrics        []string `json:"metric,omitempty"`
+
+	// TimeRange is populated by the backend from the query context.
+	TimeRange backend.TimeRange `json:"-"`
 }
 
 // SiteHealthURL constructs the full URL for the site-health endpoint.

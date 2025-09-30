@@ -30,15 +30,8 @@ func buildSiteHealthParamsFromQuery(q QueryModel, pageSize, offset int) url.Valu
 		v.Set("siteType", s)
 	}
 	// Add time range if present
-	if q.StartTime != "" {
-		if ts, err := strconv.ParseInt(q.StartTime, 10, 64); err == nil && ts > 0 {
-			v.Set("startTime", strconv.FormatInt(ts, 10))
-		}
-	}
-	if q.EndTime != "" {
-		if ts, err := strconv.ParseInt(q.EndTime, 10, 64); err == nil && ts > 0 {
-			v.Set("endTime", strconv.FormatInt(ts, 10))
-		}
+	if !q.TimeRange.To.IsZero() {
+		v.Set("timestamp", strconv.FormatInt(q.TimeRange.To.UnixMilli(), 10))
 	}
 	return v
 }
@@ -110,11 +103,6 @@ func clampLimit(n, def, min, max int) int {
 
 // buildAssuranceParamsFromQuery converts a QueryModel from the frontend into a
 // url.Values map suitable for encoding as URL query parameters.
-// It performs the following key operations:
-// - Sets pagination parameters ('limit' and 'offset').
-// - Adds time range filters ('startTime', 'endTime') if provided.
-// - Adds normalized and validated filters for site, device, status, etc.
-// - Skips any empty or invalid filter values to create a clean API request.
 func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageSize, offset int) url.Values {
 	v := url.Values{}
 
@@ -134,13 +122,13 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 	}
 
 	// Filters (skip empties)
-	if s := strings.TrimSpace(q.SiteID); s != "" {
+	if s := strings.TrimSpace(q.Site); s != "" {
 		v.Set("siteId", s)
 	}
-	if s := strings.TrimSpace(q.DeviceID); s != "" {
+	if s := strings.TrimSpace(q.Device); s != "" {
 		v.Set("deviceId", s)
 	}
-	if s := strings.TrimSpace(q.MacAddress); s != "" {
+	if s := strings.TrimSpace(q.MAC); s != "" {
 		v.Set("macAddress", s)
 	}
 
@@ -157,13 +145,16 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 		}
 	}
 
-	if st, ok := normalizeIssueStatus(q.IssueStatus, q.Status); ok {
-		v.Set("status", strings.ToLower(st))
-	}
-
-	// AIDriven is a custom StringOrBool type (backward-compatible)
-	if b, ok := normalizeBoolish(q.AIDriven.String()); ok {
-		v.Set("aiDriven", b)
+	if len(q.Status) > 0 {
+		var validStatuses []string
+		for _, s := range q.Status {
+			if st, ok := normalizeIssueStatus(s, ""); ok {
+				validStatuses = append(validStatuses, strings.ToLower(st))
+			}
+		}
+		if len(validStatuses) > 0 {
+			v.Set("status", strings.Join(validStatuses, ","))
+		}
 	}
 
 	return v

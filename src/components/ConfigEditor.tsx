@@ -2,9 +2,8 @@
 // Allows users to set connection details, credentials, and security options.
 // All logic is handled via controlled components and Grafana's plugin API.
 import React, { ChangeEvent } from 'react';
-import type { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { Field, Input, SecretInput, Switch } from '@grafana/ui';
-import { Select } from '@grafana/ui';
+import type { DataSourcePluginOptionsEditorProps, SelectableValue } from '@grafana/data';
+import { Field, Input, SecretInput, Switch, Select } from '@grafana/ui';
 import type { CatalystJsonData } from '../types';
 
 // SecureShape: Structure for secure fields (not stored in plain config)
@@ -27,13 +26,13 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
     onOptionsChange({ ...options, jsonData: { ...(jsonData ?? {}), ...patch } });
 
   // Endpoint options for selection (Grafana Select format)
-  const endpointOptions = [
+  const endpointOptions: Array<SelectableValue<string>> = [
     { label: 'Issues/Alerts', value: 'alerts' },
     { label: 'Site Health', value: 'siteHealth' },
   ];
 
   // Handler: Update endpoint selection for Grafana Select
-  const onEndpointChange = (v: any) => setJson({ endpoint: v?.value ?? 'alerts' });
+  const onEndpointChange = (v: SelectableValue<string>) => setJson({ endpoint: v.value });
 
   // setSecure: Update secure config fields (username, password, token)
   const setSecure = (patch: Partial<SecureShape>) =>
@@ -71,7 +70,7 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       <Field label="API Endpoint" description="Choose which Catalyst Center API endpoint to query.">
         <Select
           options={endpointOptions}
-          value={endpointOptions.find(opt => opt.value === (jsonData?.endpoint ?? 'alerts'))}
+          value={endpointOptions.find((opt) => opt.value === (jsonData?.endpoint ?? 'alerts'))}
           onChange={onEndpointChange}
           width={30}
         />
@@ -131,6 +130,3 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
     </div>
   );
 };
-
-// Default export for plugin registration
-export default ConfigEditor;

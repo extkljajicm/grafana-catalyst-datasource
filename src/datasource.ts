@@ -6,9 +6,21 @@
 // - Implementing template variable queries (metricFindQuery)
 // - Efficiently extracting unique values for template variables from recent issues
 
-import { DataSourceWithBackend } from '@grafana/runtime';
-import type { CoreApp, DataSourceInstanceSettings, MetricFindValue } from '@grafana/data';
-import { DEFAULT_QUERY as DEFAULTS, type CatalystQuery, type CatalystJsonData, type CatalystVariableQuery } from './types';
+import { DataSourceWithBackend, getTemplateSrv } from '@grafana/runtime';
+import type {
+  CoreApp,
+  DataSourceInstanceSettings,
+  MetricFindValue,
+  DataQueryRequest,
+  DataQueryResponse,
+  ScopedVars,
+} from '@grafana/data';
+import {
+  DEFAULT_QUERY as DEFAULTS,
+  type CatalystQuery,
+  type CatalystJsonData,
+  type CatalystVariableQuery,
+} from './types';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
 
@@ -31,10 +43,24 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
     return { ...DEFAULTS, endpoint, queryType: endpoint === 'siteHealth' ? 'siteHealth' : 'alerts' };
   }
 
-  // Prevents Grafana from executing empty or invalid queries.
-  // Only queries of type 'alerts' are allowed.
+  // filterQuery is called by Grafana to prevent the execution of empty or invalid queries.
+  // We allow all queries to pass through, as the backend handles validation.
   filterQuery(query: CatalystQuery): boolean {
-    return !!query && query.queryType === 'alerts';
+    return true;
+  }
+
+  // applyTemplateVariables is a required method that Grafana uses to substitute
+  // template variables into a query before sending it to the backend.
+  applyTemplateVariables(query: CatalystQuery, scopedVars: ScopedVars): CatalystQuery {
+    const templateSrv = getTemplateSrv();
+    return {
+      ...query,
+      siteId: templateSrv.replace(query.siteId, scopedVars),
+      deviceId: templateSrv.replace(query.deviceId, scopedVars),
+      macAddress: templateSrv.replace(query.macAddress, scopedVars),
+      parentSiteName: templateSrv.replace(query.parentSiteName, scopedVars),
+      siteName: templateSrv.replace(query.siteName, scopedVars),
+    };
   }
 
   /**
@@ -92,8 +118,10 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
 
       // getResource calls the backend's CallResource handler, which proxies to the Catalyst Center API.
       const data: any = await this.getResource<any>(`issues?${params.toString()}`);
-      const arr: any[] = Array.isArray(data) ? data : (data?.response ?? []);
-      if (!arr.length) {break;}
+      const arr: any[] = Array.isArray(data) ? data : data?.response ?? [];
+      if (!arr.length) {
+        break;
+      }
 
       for (const it of arr) {
         for (const k of keys) {
@@ -108,11 +136,15 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
         }
       }
 
-      if (arr.length < PAGE_SIZE) {break;}
+      if (arr.length < PAGE_SIZE) {
+        break;
+      }
       offset += PAGE_SIZE;
     }
 
-    return Array.from(out).sort().map((v) => ({ text: v, value: v }));
+    return Array.from(out)
+      .sort()
+      .map((v) => ({ text: v, value: v }));
   }
 }
 

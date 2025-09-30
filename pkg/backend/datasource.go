@@ -97,6 +97,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			resp.Responses[q.RefID] = dr
 			continue
 		}
+		qm.TimeRange = q.TimeRange
+
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
 			siteHealthURL, err := SiteHealthURL(settings.BaseURL)
 			if err != nil {
@@ -104,59 +106,93 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				resp.Responses[q.RefID] = dr
 				continue
 			}
+
+			allSites := make([]map[string]any, 0, 256)
 			pageSize := 25
 			offset := 0
-			params := buildSiteHealthParamsFromQuery(qm, pageSize, offset+1)
-			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
-			if err != nil {
-				dr.Error = fmt.Errorf("token: %w", err)
+
+			for {
+				params := buildSiteHealthParamsFromQuery(qm, pageSize, offset)
+				token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
+				if err != nil {
+					dr.Error = fmt.Errorf("token: %w", err)
+					break
+				}
+				reqURL := siteHealthURL + "?" + params.Encode()
+				httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+				httpReq.Header.Set("X-Auth-Token", token)
+				httpResp, err := httpClient.Do(httpReq)
+				if err != nil {
+					dr.Error = fmt.Errorf("site-health request failed: %w", err)
+					break
+				}
+				body, _ := io.ReadAll(httpResp.Body)
+				httpResp.Body.Close()
+				if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+					dr.Error = fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
+					break
+				}
+				var env struct {
+					Response []map[string]any `json:"response"`
+				}
+				if err := json.Unmarshal(body, &env); err != nil {
+					dr.Error = fmt.Errorf("site-health response: %w", err)
+					break
+				}
+
+				allSites = append(allSites, env.Response...)
+
+				if len(env.Response) < pageSize {
+					break
+				}
+				offset += pageSize
+			}
+
+			if dr.Error != nil {
 				resp.Responses[q.RefID] = dr
 				continue
 			}
-			reqURL := siteHealthURL + "?" + params.Encode()
-			httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-			httpReq.Header.Set("X-Auth-Token", token)
-			httpResp, err := httpClient.Do(httpReq)
-			if err != nil {
-				dr.Error = fmt.Errorf("site-health request failed: %w", err)
-				resp.Responses[q.RefID] = dr
-				continue
-			}
-			body, _ := io.ReadAll(httpResp.Body)
-			httpResp.Body.Close()
-			if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-				dr.Error = fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
-				resp.Responses[q.RefID] = dr
-				continue
-			}
-			var env struct {
-				Response []map[string]any `json:"response"`
-			}
-			if err := json.Unmarshal(body, &env); err != nil {
-				dr.Error = fmt.Errorf("site-health response: %w", err)
-				resp.Responses[q.RefID] = dr
-				continue
-			}
+
 			// Filter by parentSiteName and siteName if set
-			filtered := env.Response
-			if qm.ParentSiteName != "" || qm.SiteName != "" {
-				filtered = make([]map[string]any, 0, len(env.Response))
-				for _, site := range env.Response {
+			filtered := allSites
+			if qm.ParentSiteName != "" || qm.SiteName != "" || qm.ParentSiteId != "" || qm.SiteId != "" {
+				filtered = make([]map[string]any, 0, len(allSites))
+				for _, site := range allSites {
 					if qm.ParentSiteName != "" && site["parentSiteName"] != qm.ParentSiteName {
 						continue
 					}
 					if qm.SiteName != "" && site["siteName"] != qm.SiteName {
 						continue
 					}
+					if qm.ParentSiteId != "" && site["parentSiteId"] != qm.ParentSiteId {
+						continue
+					}
+					if qm.SiteId != "" && site["siteId"] != qm.SiteId {
+						continue
+					}
 					filtered = append(filtered, site)
 				}
 			}
+
 			// Build Grafana frames for selected metrics
 			frame := data.NewFrame(q.RefID)
+
+			metricNameMapping := map[string]string{
+				"clientCount":         "numberOfClients",
+				"healthScore":         "healthyClientsPercentage",
+				"wiredClientCount":    "numberOfWiredClients",
+				"wirelessClientCount": "numberOfWirelessClients",
+			}
+
 			for _, metric := range qm.Metrics {
+				apiMetricName, ok := metricNameMapping[metric]
+				if !ok {
+					apiMetricName = metric
+				}
+
 				f := data.NewField(metric, nil, make([]int64, 0, len(filtered)))
 				for _, site := range filtered {
-					if v, ok := site[metric]; ok {
+					if v, ok := site[apiMetricName]; ok {
 						switch x := v.(type) {
 						case float64:
 							f.Append(int64(x))
@@ -165,9 +201,11 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 						case json.Number:
 							n, _ := x.Int64()
 							f.Append(n)
+						default:
+							f.Append(int64(0))
 						}
 					} else {
-						f.Append(0)
+						f.Append(int64(0))
 					}
 				}
 				frame.Fields = append(frame.Fields, f)

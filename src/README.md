@@ -13,8 +13,10 @@ Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly fro
 
 - **Endpoint selection:** Choose which Catalyst Center API endpoint to query (e.g., issues/alerts or site health) in the data source config.
 - **Site Health support:** Fetch overall health metrics for all sites from `/dna/intent/api/v1/site-health`.
-- **Dynamic filters:** Query editor adapts filters based on selected endpoint (e.g., site type, limit, offset, timestamp, parent site name, site name for site health).
-- **Time series selection:** Select which site health metrics to visualize (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.).
+- **Dynamic filters:** Query editor adapts filters based on selected endpoint.
+  - For `siteHealth`: Filter by Site Type, Parent Site Name, Site Name, Parent Site ID, and Site ID.
+  - For `alerts`: Filter by Site, Device, MAC, Priority, Status, and AI-driven.
+- **Time series selection:** Select which site health metrics to visualize (e.g., Client Count, Health Score, Wired/Wireless Client Count).
 - Fetch issues from `/dna/data/api/v1/assuranceIssues` (existing)
 - Pagination uses one-based offset
 - Filters: **Site**, **Device**, **MAC**, **Priority**, **Issue Status**, **AI-driven**, **Limit**

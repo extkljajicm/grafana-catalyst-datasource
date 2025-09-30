@@ -2,10 +2,17 @@
 // Allows users to filter alerts/issues by site, device, MAC, priority, status, AI-driven, and more.
 // Uses debounced local state to avoid excessive backend requests.
 import React, { useEffect, useRef, useState } from 'react';
-import { Field, Input, Select, Switch } from '@grafana/ui';
+import { Field, Input, InlineField, MultiSelect, Switch, Select } from '@grafana/ui';
 import type { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
-import { CatalystQuery, CatalystJsonData, CatalystPriority, CatalystIssueStatus } from '../types';
+import {
+  CatalystQuery,
+  CatalystJsonData,
+  CatalystPriority,
+  CatalystIssueStatus,
+  DEFAULT_QUERY,
+  QueryType,
+} from '../types';
 
 // Props: Provided by Grafana plugin system
 type Props = QueryEditorProps<DataSource, CatalystQuery, CatalystJsonData>;
@@ -45,226 +52,190 @@ const AI_OPTIONS: Array<SelectableValue<string>> = [
 const METRIC_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'Client Count', value: 'clientCount' },
   { label: 'Health Score', value: 'healthScore' },
+  { label: 'Wired Client Count', value: 'wiredClientCount' },
+  { label: 'Wireless Client Count', value: 'wirelessClientCount' },
 ];
+
+// Define a type for the filter state
+type Filters = Omit<Partial<CatalystQuery>, 'refId' | 'queryType' | 'endpoint'>;
 
 const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) => {
   // Get endpoint from config
   const endpoint = query.endpoint ?? 'alerts';
 
-  // Alerts state
-  const [siteId, setSiteId] = useState<string>(query.siteId ?? '');
-  const [deviceId, setDeviceId] = useState<string>(query.deviceId ?? '');
-  const [macAddress, setMacAddress] = useState<string>(query.macAddress ?? '');
-  const [priority, setPriority] = useState<CatalystPriority[]>(query.priority ?? []);
-  const [issueStatus, setIssueStatus] = useState<CatalystIssueStatus | ''>(query.issueStatus ?? '');
-  const [aiDriven, setAiDriven] = useState<string>(query.aiDriven ? 'true' : query.aiDriven === 'false' ? 'false' : '');
-  const [limit, setLimit] = useState<number>(query.limit ?? 25);
+  // Unified state for all filters
+  const [filters, setFilters] = useState<Filters>({
+    siteId: query.siteId ?? DEFAULT_QUERY.siteId,
+    deviceId: query.deviceId ?? DEFAULT_QUERY.deviceId,
+    macAddress: query.macAddress ?? DEFAULT_QUERY.macAddress,
+    priority: query.priority ?? DEFAULT_QUERY.priority,
+    issueStatus: query.issueStatus ?? DEFAULT_QUERY.issueStatus,
+    aiDriven: query.aiDriven ?? DEFAULT_QUERY.aiDriven,
+    limit: query.limit ?? DEFAULT_QUERY.limit,
+    metric: query.metric ?? DEFAULT_QUERY.metric,
+    parentSiteName: query.parentSiteName ?? DEFAULT_QUERY.parentSiteName,
+    siteName: query.siteName ?? DEFAULT_QUERY.siteName,
+    enrich: query.enrich ?? DEFAULT_QUERY.enrich,
+  });
 
-  // SiteHealth state
-  const [shSiteId, setShSiteId] = useState<string>(query.siteId ?? '');
-  const [shMetric, setShMetric] = useState<string>(query.metric ?? 'clientCount');
-  const [shLimit, setShLimit] = useState<number>(query.limit ?? 25);
-
-  // Debounced versions
-  const dSiteId = useDebounced(siteId, 400);
-  const dDeviceId = useDebounced(deviceId, 400);
-  const dMac = useDebounced(macAddress, 400);
-  const dPriority = useDebounced(priority, 400);
-  const dIssueStatus = useDebounced(issueStatus, 400);
-  const dAiDriven = useDebounced(aiDriven, 400);
-  const dLimit = useDebounced(limit, 400);
-  const dShSiteId = useDebounced(shSiteId, 400);
-  const dShMetric = useDebounced(shMetric, 400);
-  const dShLimit = useDebounced(shLimit, 400);
+  // Debounced version of the filters
+  const debouncedFilters = useDebounced(filters, 400);
 
   // Effect: Synchronize debounced state with parent query object
   // Prevents infinite loops by tracking last signature
   const lastSig = useRef<string>('');
   useEffect(() => {
-    let sig = '';
-    let next: CatalystQuery = { ...query };
-    if (endpoint === 'alerts') {
-      sig = [
-        dSiteId || '',
-        dDeviceId || '',
-        dMac || '',
-        (dPriority || []).join(','),
-        dIssueStatus || '',
-        dAiDriven || '',
-        String(dLimit ?? 0),
-      ].join('|');
-      next = {
-        ...query,
-        queryType: 'alerts',
-        siteId: dSiteId || undefined,
-        deviceId: dDeviceId || undefined,
-        macAddress: dMac || undefined,
-        priority: (dPriority && dPriority.length > 0) ? dPriority : undefined,
-        issueStatus: dIssueStatus === '' ? undefined : dIssueStatus,
-        aiDriven: dAiDriven === '' ? undefined : dAiDriven,
-        limit: dLimit ?? 25,
-        severity: undefined,
-        status: undefined,
-      };
-    } else if (endpoint === 'siteHealth') {
-      // Use Grafana dashboard time range
-      const startTime = range?.from ? range.from.valueOf().toString() : undefined;
-      const endTime = range?.to ? range.to.valueOf().toString() : undefined;
-      sig = [
-        dShSiteId || '',
-        dShMetric || '',
-        String(startTime ?? ''),
-        String(endTime ?? ''),
-        String(dShLimit ?? 0),
-      ].join('|');
-      next = {
-        ...query,
-        queryType: 'siteHealth',
-        siteId: dShSiteId || undefined,
-        metric: dShMetric || 'clientCount',
-        startTime,
-        endTime,
-        limit: dShLimit ?? 25,
-      };
-    }
-    if (sig === lastSig.current) {
-      return;
-    }
-    lastSig.current = sig;
-    onChange(next);
-    onRunQuery();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoint, dSiteId, dDeviceId, dMac, dPriority, dIssueStatus, dAiDriven, dLimit, dShSiteId, dShMetric, dShLimit, range]);
+    const next: CatalystQuery = {
+      ...query,
+      queryType: endpoint as QueryType,
+      ...debouncedFilters,
+    };
+    const sig = JSON.stringify(next);
 
-  // Handler: Toggle enrichment (fetches extra device/MAC details)
-  const onEnrichChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange({ ...query, enrich: e.currentTarget.checked });
-    onRunQuery();
+    if (sig !== lastSig.current) {
+      lastSig.current = sig;
+      onChange(next);
+      onRunQuery();
+    }
+  }, [debouncedFilters, endpoint, onChange, onRunQuery, query]);
+
+  // Handler for filter changes
+  const onFilterChange = (patch: Partial<Filters>) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
   };
 
-  // Render: Query configuration form
+  // Render common and endpoint-specific filters
   return (
-    <div className="gf-form-group">
-      {endpoint === 'alerts' ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {endpoint === 'alerts' && (
         <>
-          <div className="gf-form">
-            {/* Site ID field. Supports template variables. */}
-            <Field label="Site ID">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Field label="Site ID" description="Filter by Catalyst site ID (UUID)">
               <Input
-                value={siteId}
-                onChange={(e) => setSiteId(e.currentTarget.value)}
-                placeholder="e.g. 7f6c0f40-...  (supports $__value from variables)"
+                value={filters.siteId}
+                onChange={(e) => onFilterChange({ siteId: e.currentTarget.value })}
+                placeholder="All sites"
                 width={30}
               />
             </Field>
-            {/* Device ID field */}
-            <Field label="Device ID">
+            <Field label="Device ID" description="Filter by device IP address">
               <Input
-                value={deviceId}
-                onChange={(e) => setDeviceId(e.currentTarget.value)}
-                placeholder="e.g. 9b2d3a10-..."
-                width={30}
-              />
-            </Field>
-            {/* MAC address field */}
-            <Field label="MAC">
-              <Input
-                value={macAddress}
-                onChange={(e) => setMacAddress(e.currentTarget.value)}
-                placeholder="00:11:22:33:44:55"
+                value={filters.deviceId}
+                onChange={(e) => onFilterChange({ deviceId: e.currentTarget.value })}
+                placeholder="All devices"
                 width={30}
               />
             </Field>
           </div>
-
-          <div className="gf-form">
-            {/* Priority multi-select */}
-            <Field label="Priority">
-              <Select
-                options={PRIORITY_OPTIONS}
-                value={PRIORITY_OPTIONS.filter(o => priority.includes(o.value!))}
-                onChange={(v) => setPriority(v.map((opt: SelectableValue<CatalystPriority>) => opt.value!))}
-                isClearable
-                isMulti
-                width={20}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Field label="MAC Address" description="Filter by client MAC address">
+              <Input
+                value={filters.macAddress}
+                onChange={(e) => onFilterChange({ macAddress: e.currentTarget.value })}
+                placeholder="All clients"
+                width={30}
               />
             </Field>
-
-            {/* Issue status dropdown */}
-            <Field label="Status">
+            <Field label="Priority" description="Select one or more priorities">
+              <MultiSelect
+                options={PRIORITY_OPTIONS}
+                value={filters.priority}
+                onChange={(v) => onFilterChange({ priority: v.map((item) => item.value!) })}
+                width={30}
+              />
+            </Field>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Field label="Status" description="Filter by issue status">
               <Select
                 options={STATUS_OPTIONS}
-                value={STATUS_OPTIONS.find((o) => o.value === (issueStatus || undefined)) ?? null}
-                onChange={(v) => setIssueStatus(v?.value ?? '')}
+                value={filters.issueStatus}
+                onChange={(v) => onFilterChange({ issueStatus: v?.value as CatalystIssueStatus })}
+                width={30}
                 isClearable
-                width={20}
               />
             </Field>
-
-            {/* AI-driven dropdown */}
-            <Field label="AI-driven">
+            <Field label="AI-Driven" description="Filter by AI-driven issues">
               <Select
                 options={AI_OPTIONS}
-                value={AI_OPTIONS.find((o) => o.value === (aiDriven || '')) ?? AI_OPTIONS[0]}
-                onChange={(v) => setAiDriven(v?.value ?? '')}
-                width={12}
-              />
-            </Field>
-
-            {/* Limit field (max rows) */}
-            <Field label="Limit">
-              <Input
-                type="number"
-                value={limit}
-                onChange={(e) => setLimit(Number(e.currentTarget.value) || 100)}
-                placeholder="Max rows"
-                width={12}
-              />
-            </Field>
-
-            {/* Enrichment toggle */}
-            <Field label="Fetch full details" description="Enriches issues with device/MAC details. Slower query time.">
-              <Switch value={!!query.enrich} onChange={onEnrichChange} />
-            </Field>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="gf-form">
-            {/* SiteHealth: Site ID filter (optional) */}
-            <Field label="Site ID">
-              <Input
-                value={shSiteId}
-                onChange={(e) => setShSiteId(e.currentTarget.value)}
-                placeholder="e.g. 7f6c0f40-..."
+                value={filters.aiDriven}
+                onChange={(v) => onFilterChange({ aiDriven: v?.value ?? '' })}
                 width={30}
               />
             </Field>
-            {/* Metric dropdown */}
-            <Field label="Metric">
-              <Select
-                options={METRIC_OPTIONS}
-                value={METRIC_OPTIONS.find(opt => opt.value === shMetric) ?? METRIC_OPTIONS[0]}
-                onChange={(v) => setShMetric(v && v.value ? v.value : 'clientCount')}
-                width={20}
-              />
-            </Field>
-            {/* Limit field */}
-            <Field label="Limit">
-              <Input
-                type="number"
-                value={shLimit}
-                onChange={(e) => setShLimit(Number(e.currentTarget.value) || 100)}
-                placeholder="Max rows"
-                width={12}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Field label="Enrich" description="Resolve site IDs to names (slower)">
+              <Switch
+                value={filters.enrich}
+                onChange={(e) => onFilterChange({ enrich: e.currentTarget.checked })}
               />
             </Field>
           </div>
         </>
       )}
+      {endpoint === 'siteHealth' && (
+        <>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <InlineField label="Parent Site Name" labelWidth={20}>
+              <Input
+                width={40}
+                value={filters.parentSiteName}
+                onChange={(e) => onFilterChange({ parentSiteName: e.currentTarget.value })}
+                placeholder="Filter by parent site name"
+              />
+            </InlineField>
+            <InlineField label="Site Name" labelWidth={20}>
+              <Input
+                width={40}
+                value={filters.siteName}
+                onChange={(e) => onFilterChange({ siteName: e.currentTarget.value })}
+                placeholder="Filter by site name"
+              />
+            </InlineField>
+          </div>
+          <div className="gf-form">
+            <InlineField label="Parent Site ID" labelWidth={20}>
+              <Input
+                width={40}
+                value={filters.parentSiteId}
+                onChange={(e) => onFilterChange({ parentSiteId: e.currentTarget.value })}
+                placeholder="Filter by parent site ID"
+              />
+            </InlineField>
+            <InlineField label="Site ID" labelWidth={20}>
+              <Input
+                width={40}
+                value={filters.siteId}
+                onChange={(e) => onFilterChange({ siteId: e.currentTarget.value })}
+                placeholder="Filter by site ID"
+              />
+            </InlineField>
+          </div>
+          <div className="gf-form">
+            <InlineField label="Metrics" labelWidth={20}>
+              <MultiSelect
+                width={40}
+                options={METRIC_OPTIONS}
+                value={filters.metric}
+                onChange={(v) => onFilterChange({ metric: v.map((item) => item.value!) })}
+              />
+            </InlineField>
+          </div>
+        </>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Field label="Limit" description="Maximum number of issues to return">
+          <Input
+            type="number"
+            value={filters.limit}
+            onChange={(e) => onFilterChange({ limit: parseInt(e.currentTarget.value, 10) || 0 })}
+            width={15}
+          />
+        </Field>
+      </div>
     </div>
   );
 };
 
-// Default export for plugin registration
 export default QueryEditor;
