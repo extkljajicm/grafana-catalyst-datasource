@@ -100,117 +100,8 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		qm.TimeRange = q.TimeRange
 
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
-			siteHealthURL, err := SiteHealthURL(settings.BaseURL)
-			if err != nil {
-				dr.Error = err
-				resp.Responses[q.RefID] = dr
-				continue
-			}
-
-			allSites := make([]map[string]any, 0, 256)
-			pageSize := 25
-			offset := 0
-
-			for {
-				params := buildSiteHealthParamsFromQuery(qm, pageSize, offset)
-				token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
-				if err != nil {
-					dr.Error = fmt.Errorf("token: %w", err)
-					break
-				}
-				reqURL := siteHealthURL + "?" + params.Encode()
-				httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-				httpReq.Header.Set("X-Auth-Token", token)
-				httpResp, err := httpClient.Do(httpReq)
-				if err != nil {
-					dr.Error = fmt.Errorf("site-health request failed: %w", err)
-					break
-				}
-				body, _ := io.ReadAll(httpResp.Body)
-				httpResp.Body.Close()
-				if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-					dr.Error = fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
-					break
-				}
-				var env struct {
-					Response []map[string]any `json:"response"`
-				}
-				if err := json.Unmarshal(body, &env); err != nil {
-					dr.Error = fmt.Errorf("site-health response: %w", err)
-					break
-				}
-
-				allSites = append(allSites, env.Response...)
-
-				if len(env.Response) < pageSize {
-					break
-				}
-				offset += pageSize
-			}
-
-			if dr.Error != nil {
-				resp.Responses[q.RefID] = dr
-				continue
-			}
-
-			// Filter by parentSiteName and siteName if set
-			filtered := allSites
-			if qm.ParentSiteName != "" || qm.SiteName != "" || qm.ParentSiteId != "" || qm.SiteId != "" {
-				filtered = make([]map[string]any, 0, len(allSites))
-				for _, site := range allSites {
-					if qm.ParentSiteName != "" && site["parentSiteName"] != qm.ParentSiteName {
-						continue
-					}
-					if qm.SiteName != "" && site["siteName"] != qm.SiteName {
-						continue
-					}
-					if qm.ParentSiteId != "" && site["parentSiteId"] != qm.ParentSiteId {
-						continue
-					}
-					if qm.SiteId != "" && site["siteId"] != qm.SiteId {
-						continue
-					}
-					filtered = append(filtered, site)
-				}
-			}
-
-			// Build Grafana frames for selected metrics
-			frame := data.NewFrame(q.RefID)
-
-			metricNameMapping := map[string]string{
-				"clientCount":         "numberOfClients",
-				"healthScore":         "healthyClientsPercentage",
-				"wiredClientCount":    "numberOfWiredClients",
-				"wirelessClientCount": "numberOfWirelessClients",
-			}
-
-			for _, metric := range qm.Metrics {
-				apiMetricName, ok := metricNameMapping[metric]
-				if !ok {
-					apiMetricName = metric
-				}
-
-				f := data.NewField(metric, nil, make([]int64, 0, len(filtered)))
-				for _, site := range filtered {
-					if v, ok := site[apiMetricName]; ok {
-						switch x := v.(type) {
-						case float64:
-							f.Append(int64(x))
-						case int64:
-							f.Append(x)
-						case json.Number:
-							n, _ := x.Int64()
-							f.Append(n)
-						default:
-							f.Append(int64(0))
-						}
-					} else {
-						f.Append(int64(0))
-					}
-				}
-				frame.Fields = append(frame.Fields, f)
-			}
-			dr.Frames = append(dr.Frames, frame)
+			// For siteHealth, we need to build a time series by making multiple API calls.
+			dr.Frames = d.querySiteHealthTimeSeries(ctx, inst, qm, q.TimeRange)
 			resp.Responses[q.RefID] = dr
 			continue
 		}
@@ -653,4 +544,124 @@ func firstNonZero(vals ...int64) int64 {
 		}
 	}
 	return 0
+}
+
+func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange) []*data.Frame {
+	// Determine the interval for the time series.
+	interval := timeRange.Duration() / 100 // 100 data points
+	if interval < time.Minute {
+		interval = time.Minute // Minimum interval of 1 minute
+	}
+
+	// Initialize frames for each metric.
+	frames := make([]*data.Frame, 0, len(qm.Metrics))
+	for _, metric := range qm.Metrics {
+		frame := data.NewFrame(metric)
+		frame.Fields = append(frame.Fields, data.NewField("time", nil, []time.Time{}))
+		frame.Fields = append(frame.Fields, data.NewField(metric, nil, []int64{}))
+		frames = append(frames, frame)
+	}
+
+	// Iterate over the time range and query the API for each interval.
+	for t := timeRange.From; t.Before(timeRange.To); t = t.Add(interval) {
+		// Create a new query model for this specific time.
+		qm.TimeRange = backend.TimeRange{From: t, To: t}
+
+		// Query the API.
+		sites, err := d.querySiteHealth(ctx, inst, qm)
+		if err != nil {
+			// Handle error, maybe log it.
+			continue
+		}
+
+		// Process the response and append data to the frames.
+		for i, metric := range qm.Metrics {
+			for _, site := range sites {
+				if v, ok := site[metric]; ok {
+					var value int64
+					switch x := v.(type) {
+					case float64:
+						value = int64(x)
+					case int64:
+						value = x
+					case json.Number:
+						n, _ := x.Int64()
+						value = n
+					}
+					frames[i].AppendRow(t, value)
+				}
+			}
+		}
+	}
+
+	return frames
+}
+
+func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel) ([]map[string]any, error) {
+	settings := inst.Settings
+	httpClient := d.httpClientFor(settings)
+	siteHealthURL, err := SiteHealthURL(settings.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	allSites := make([]map[string]any, 0, 256)
+	pageSize := 25
+	offset := 0
+
+	for {
+		params := buildSiteHealthParamsFromQuery(qm, pageSize, offset)
+		token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("token: %w", err)
+		}
+		reqURL := siteHealthURL + "?" + params.Encode()
+		httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		httpReq.Header.Set("X-Auth-Token", token)
+		httpResp, err := httpClient.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("site-health request failed: %w", err)
+		}
+		body, _ := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			return nil, fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
+		}
+		var env struct {
+			Response []map[string]any `json:"response"`
+		}
+		if err := json.Unmarshal(body, &env); err != nil {
+			return nil, fmt.Errorf("site-health response: %w", err)
+		}
+
+		allSites = append(allSites, env.Response...)
+
+		if len(env.Response) < pageSize {
+			break
+		}
+		offset += pageSize
+	}
+
+	// Filter by parentSiteName and siteName if set
+	filtered := allSites
+	if qm.ParentSiteName != "" || qm.SiteName != "" || qm.ParentSiteId != "" || qm.SiteId != "" {
+		filtered = make([]map[string]any, 0, len(allSites))
+		for _, site := range allSites {
+			if qm.ParentSiteName != "" && site["parentSiteName"] != qm.ParentSiteName {
+				continue
+			}
+			if qm.SiteName != "" && site["siteName"] != qm.SiteName {
+				continue
+			}
+			if qm.ParentSiteId != "" && site["parentSiteId"] != qm.ParentSiteId {
+				continue
+			}
+			if qm.SiteId != "" && site["siteId"] != qm.SiteId {
+				continue
+			}
+			filtered = append(filtered, site)
+		}
+	}
+
+	return filtered, nil
 }

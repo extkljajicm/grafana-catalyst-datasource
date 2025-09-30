@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Time Range Filtering:** Fixed a bug where the `siteHealth` endpoint was not correctly using the Grafana time range selector.
 
 ### Added
+- **Time Series Visualization:** Implemented true time series support for `siteHealth` queries. The backend now iterates over the selected time range to build a full time series.
 - **Expanded Site Health Filtering:** Added support for filtering by `siteId` and `parentSiteId` in the `siteHealth` query.
 - **Expanded Site Health Metrics:** The "Metrics" selector for `siteHealth` now includes all relevant metrics from the API documentation.
 
