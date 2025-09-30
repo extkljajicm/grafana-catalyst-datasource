@@ -47,7 +47,6 @@ export interface CatalystQuery extends DataQuery {
  * Defines the default values for a new query in the query editor.
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
-  queryType: 'alerts',
   limit: 100,
   priority: ['P1', 'P2'],
   status: ['ACTIVE'],
@@ -57,13 +56,21 @@ export const DEFAULT_QUERY: Partial<CatalystQuery> = {
   siteName: '',
   siteId: '',
   parentSiteId: '',
-  metric: ['clientCount'],
-  endpoint: 'alerts',
+  metric: [],
+  endpoint: 'issues',
   deviceId: '',
   macAddress: '',
   issueStatus: 'ACTIVE',
   aiDriven: '',
 };
+
+export const metricOptions = [
+  { label: 'Client Count', value: 'clientCount' },
+  { label: 'Health Score', value: 'healthScore' },
+  { label: 'Access Point Count', value: 'accessPointCount' },
+  { label: 'Switch Count', value: 'switchCount' },
+  { label: 'Router Count', value: 'routerCount' },
+];
 
 /**
  * Represents the non-sensitive configuration data for the datasource instance,

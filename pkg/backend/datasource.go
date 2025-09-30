@@ -13,9 +13,30 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	log "github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
+
+var (
+	_ backend.QueryDataHandler      = (*Datasource)(nil)
+	_ backend.CheckHealthHandler    = (*Datasource)(nil)
+	_ instancemgmt.InstanceDisposer = (*Datasource)(nil)
+)
+
+// Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
+// created. As soon as datasource settings change detected by SDK old instance will be disposed.
+func (d *Datasource) Dispose() {
+	// Clean up datasource instance resources.
+}
+
+var metricNameMapping = map[string]string{
+	"clientCount":      "numberOfClients",
+	"healthScore":      "healthyNetwork",
+	"accessPointCount": "numberOfAPs",
+	"switchCount":      "numberOfSwitches",
+	"routerCount":      "numberOfRouters",
+}
 
 // Datasource is the main backend implementation for the Catalyst datasource.
 // It handles all backend operations: querying data, checking health, and
@@ -101,7 +122,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
 			// For siteHealth, we need to build a time series by making multiple API calls.
-			dr.Frames = d.querySiteHealthTimeSeries(ctx, inst, qm, q.TimeRange)
+			dr.Frames = d.querySiteHealthTimeSeries(ctx, inst, qm, q.TimeRange, q.Interval)
 			resp.Responses[q.RefID] = dr
 			continue
 		}
@@ -546,11 +567,11 @@ func firstNonZero(vals ...int64) int64 {
 	return 0
 }
 
-func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange) []*data.Frame {
+func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange, queryInterval time.Duration) []*data.Frame {
 	// Determine the interval for the time series.
-	interval := timeRange.Duration() / 100 // 100 data points
-	if interval < time.Minute {
-		interval = time.Minute // Minimum interval of 1 minute
+	interval := queryInterval
+	if interval < 15*time.Minute {
+		interval = 15 * time.Minute // Minimum interval of 15 minutes
 	}
 
 	// Initialize frames for each metric.
@@ -558,6 +579,7 @@ func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInst
 	for _, metric := range qm.Metrics {
 		frame := data.NewFrame(metric)
 		frame.Fields = append(frame.Fields, data.NewField("time", nil, []time.Time{}))
+		frame.Fields = append(frame.Fields, data.NewField("siteName", nil, []string{}))
 		frame.Fields = append(frame.Fields, data.NewField(metric, nil, []int64{}))
 		frames = append(frames, frame)
 	}
@@ -576,9 +598,14 @@ func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInst
 
 		// Process the response and append data to the frames.
 		for i, metric := range qm.Metrics {
+			apiMetricName, ok := metricNameMapping[metric]
+			if !ok {
+				apiMetricName = metric // Fallback to the original name if not in map
+			}
+
 			for _, site := range sites {
-				if v, ok := site[metric]; ok {
-					var value int64
+				var value int64
+				if v, ok := site[apiMetricName]; ok {
 					switch x := v.(type) {
 					case float64:
 						value = int64(x)
@@ -588,8 +615,14 @@ func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInst
 						n, _ := x.Int64()
 						value = n
 					}
-					frames[i].AppendRow(t, value)
 				}
+
+				siteName := ""
+				if sn, ok := site["siteName"].(string); ok {
+					siteName = sn
+				}
+
+				frames[i].AppendRow(t, siteName, value)
 			}
 		}
 	}
