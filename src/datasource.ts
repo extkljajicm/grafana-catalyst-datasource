@@ -37,7 +37,7 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
   // Returns the default query structure for new panels/targets.
   getDefaultQuery(app: CoreApp): Partial<CatalystQuery> {
     // Use endpoint from config if available
-    const endpoint = this.instanceSettings.jsonData?.endpoint ?? 'alerts';
+    const endpoint = (this.instanceSettings.jsonData?.endpoint ?? 'alerts') as CatalystQuery['endpoint'];
     return { ...DEFAULTS, endpoint, queryType: endpoint === 'siteHealth' ? 'siteHealth' : 'alerts' };
   }
 
@@ -54,7 +54,7 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
     return {
       ...query,
       siteId: templateSrv.replace(query.siteId, scopedVars),
-      deviceId: templateSrv.replace(query.deviceId, scopedVars),
+      networkDeviceId: templateSrv.replace(query.networkDeviceId, scopedVars),
       macAddress: templateSrv.replace(query.macAddress, scopedVars),
       parentSiteName: templateSrv.replace(query.parentSiteName, scopedVars),
       siteName: templateSrv.replace(query.siteName, scopedVars),

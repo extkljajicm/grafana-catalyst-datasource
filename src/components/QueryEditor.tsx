@@ -2,7 +2,7 @@
 // Allows users to filter alerts/issues by site, device, MAC, priority, status, AI-driven, and more.
 // Uses debounced local state to avoid excessive backend requests.
 import React, { useEffect, useRef, useState } from 'react';
-import { Field, Input, InlineField, MultiSelect, Switch, Select } from '@grafana/ui';
+import { Field, Input, InlineField, MultiSelect, Switch } from '@grafana/ui';
 import type { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import {
@@ -42,18 +42,11 @@ const STATUS_OPTIONS: Array<SelectableValue<CatalystIssueStatus>> = [
   { label: 'IGNORED', value: 'IGNORED' },
 ];
 
-// AI-driven dropdown options
-const AI_OPTIONS: Array<SelectableValue<string>> = [
-  { label: 'Any', value: '' },
-  { label: 'True', value: 'true' },
-  { label: 'False', value: 'false' },
-];
-
 const METRIC_OPTIONS: Array<SelectableValue<string>> = [
-  { label: 'Client Count', value: 'clientCount' },
-  { label: 'Health Score', value: 'healthScore' },
-  { label: 'Wired Client Count', value: 'wiredClientCount' },
-  { label: 'Wireless Client Count', value: 'wirelessClientCount' },
+  { label: 'Number of Clients', value: 'numberOfClients' },
+  { label: 'Network Health Average', value: 'networkHealthAverage' },
+  { label: 'Wired Client Count', value: 'numberOfWiredClients' },
+  { label: 'Wireless Client Count', value: 'numberOfWirelessClients' },
 ];
 
 // Define a type for the filter state
@@ -66,13 +59,12 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
   // Unified state for all filters
   const [filters, setFilters] = useState<Filters>({
     siteId: query.siteId ?? DEFAULT_QUERY.siteId,
-    deviceId: query.deviceId ?? DEFAULT_QUERY.deviceId,
+    networkDeviceId: query.networkDeviceId ?? DEFAULT_QUERY.networkDeviceId,
     macAddress: query.macAddress ?? DEFAULT_QUERY.macAddress,
     priority: query.priority ?? DEFAULT_QUERY.priority,
-    issueStatus: query.issueStatus ?? DEFAULT_QUERY.issueStatus,
-    aiDriven: query.aiDriven ?? DEFAULT_QUERY.aiDriven,
+    status: query.status ?? DEFAULT_QUERY.status,
     limit: query.limit ?? DEFAULT_QUERY.limit,
-    metric: query.metric ?? DEFAULT_QUERY.metric,
+    metrics: query.metrics ?? DEFAULT_QUERY.metrics,
     parentSiteName: query.parentSiteName ?? DEFAULT_QUERY.parentSiteName,
     siteName: query.siteName ?? DEFAULT_QUERY.siteName,
     enrich: query.enrich ?? DEFAULT_QUERY.enrich,
@@ -99,141 +91,100 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
     }
   }, [debouncedFilters, endpoint, onChange, onRunQuery, query]);
 
-  // Handler for filter changes
-  const onFilterChange = (patch: Partial<Filters>) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
-  };
-
   // Render common and endpoint-specific filters
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {endpoint === 'alerts' && (
+    <div className="gf-form-group">
+      {endpoint === 'siteHealth' ? (
         <>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Field label="Site ID" description="Filter by Catalyst site ID (UUID)">
-              <Input
-                value={filters.siteId}
-                onChange={(e) => onFilterChange({ siteId: e.currentTarget.value })}
-                placeholder="All sites"
-                width={30}
-              />
-            </Field>
-            <Field label="Device ID" description="Filter by device IP address">
-              <Input
-                value={filters.deviceId}
-                onChange={(e) => onFilterChange({ deviceId: e.currentTarget.value })}
-                placeholder="All devices"
-                width={30}
-              />
-            </Field>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Field label="MAC Address" description="Filter by client MAC address">
-              <Input
-                value={filters.macAddress}
-                onChange={(e) => onFilterChange({ macAddress: e.currentTarget.value })}
-                placeholder="All clients"
-                width={30}
-              />
-            </Field>
-            <Field label="Priority" description="Select one or more priorities">
-              <MultiSelect
-                options={PRIORITY_OPTIONS}
-                value={filters.priority}
-                onChange={(v) => onFilterChange({ priority: v.map((item) => item.value!) })}
-                width={30}
-              />
-            </Field>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Field label="Status" description="Filter by issue status">
-              <Select
-                options={STATUS_OPTIONS}
-                value={filters.issueStatus}
-                onChange={(v) => onFilterChange({ issueStatus: v?.value as CatalystIssueStatus })}
-                width={30}
-                isClearable
-              />
-            </Field>
-            <Field label="AI-Driven" description="Filter by AI-driven issues">
-              <Select
-                options={AI_OPTIONS}
-                value={filters.aiDriven}
-                onChange={(v) => onFilterChange({ aiDriven: v?.value ?? '' })}
-                width={30}
-              />
-            </Field>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Field label="Enrich" description="Resolve site IDs to names (slower)">
-              <Switch
-                value={filters.enrich}
-                onChange={(e) => onFilterChange({ enrich: e.currentTarget.checked })}
-              />
-            </Field>
-          </div>
+          <InlineField label="Site Type" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.siteType}
+              onChange={(e) => setFilters({ ...filters, siteType: e.currentTarget.value })}
+              placeholder="e.g., BUILDING, AREA"
+            />
+          </InlineField>
+          <InlineField label="Parent Site" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.parentSiteName}
+              onChange={(e) => setFilters({ ...filters, parentSiteName: e.currentTarget.value })}
+              placeholder="Filter by parent site name"
+            />
+          </InlineField>
+          <InlineField label="Site Name" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.siteName}
+              onChange={(e) => setFilters({ ...filters, siteName: e.currentTarget.value })}
+              placeholder="Filter by site name"
+            />
+          </InlineField>
+          <Field label="Metrics">
+            <MultiSelect
+              options={METRIC_OPTIONS}
+              value={filters.metrics}
+              onChange={(v) => setFilters({ ...filters, metrics: v.map((item) => item.value!) })}
+            />
+          </Field>
+        </>
+      ) : (
+        <>
+          <InlineField label="Site Name" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.siteName}
+              onChange={(e) => setFilters({ ...filters, siteName: e.currentTarget.value, siteId: '' })}
+              placeholder="Enter site name (will resolve to ID)"
+            />
+          </InlineField>
+          <InlineField label="Device ID" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.networkDeviceId}
+              onChange={(e) => setFilters({ ...filters, networkDeviceId: e.currentTarget.value })}
+              placeholder="Enter device UUID"
+            />
+          </InlineField>
+          <InlineField label="MAC Address" labelWidth={14}>
+            <Input
+              width={40}
+              value={filters.macAddress}
+              onChange={(e) => setFilters({ ...filters, macAddress: e.currentTarget.value })}
+              placeholder="Enter MAC address"
+            />
+          </InlineField>
+          <Field label="Priority">
+            <MultiSelect
+              options={PRIORITY_OPTIONS}
+              value={filters.priority}
+              onChange={(v) => setFilters({ ...filters, priority: v.map((item) => item.value!) })}
+            />
+          </Field>
+          <Field label="Status">
+            <MultiSelect
+              options={STATUS_OPTIONS}
+              value={filters.status}
+              onChange={(v) => setFilters({ ...filters, status: v.map((item) => item.value!) })}
+            />
+          </Field>
+          <InlineField label="Limit" labelWidth={14}>
+            <Input
+              width={20}
+              type="number"
+              value={filters.limit}
+              onChange={(e) => setFilters({ ...filters, limit: parseInt(e.currentTarget.value, 10) })}
+              placeholder="100"
+            />
+          </InlineField>
+          <Field label="Enrich with Site Names">
+            <Switch
+              value={filters.enrich}
+              onChange={(e) => setFilters({ ...filters, enrich: e.currentTarget.checked })}
+            />
+          </Field>
         </>
       )}
-      {endpoint === 'siteHealth' && (
-        <>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <InlineField label="Parent Site Name" labelWidth={20}>
-              <Input
-                width={40}
-                value={filters.parentSiteName}
-                onChange={(e) => onFilterChange({ parentSiteName: e.currentTarget.value })}
-                placeholder="Filter by parent site name"
-              />
-            </InlineField>
-            <InlineField label="Site Name" labelWidth={20}>
-              <Input
-                width={40}
-                value={filters.siteName}
-                onChange={(e) => onFilterChange({ siteName: e.currentTarget.value })}
-                placeholder="Filter by site name"
-              />
-            </InlineField>
-          </div>
-          <div className="gf-form">
-            <InlineField label="Parent Site ID" labelWidth={20}>
-              <Input
-                width={40}
-                value={filters.parentSiteId}
-                onChange={(e) => onFilterChange({ parentSiteId: e.currentTarget.value })}
-                placeholder="Filter by parent site ID"
-              />
-            </InlineField>
-            <InlineField label="Site ID" labelWidth={20}>
-              <Input
-                width={40}
-                value={filters.siteId}
-                onChange={(e) => onFilterChange({ siteId: e.currentTarget.value })}
-                placeholder="Filter by site ID"
-              />
-            </InlineField>
-          </div>
-          <div className="gf-form">
-            <InlineField label="Metrics" labelWidth={20}>
-              <MultiSelect
-                width={40}
-                options={METRIC_OPTIONS}
-                value={filters.metric}
-                onChange={(v) => onFilterChange({ metric: v.map((item) => item.value!) })}
-              />
-            </InlineField>
-          </div>
-        </>
-      )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Field label="Limit" description="Maximum number of issues to return">
-          <Input
-            type="number"
-            value={filters.limit}
-            onChange={(e) => onFilterChange({ limit: parseInt(e.currentTarget.value, 10) || 0 })}
-            width={15}
-          />
-        </Field>
-      </div>
     </div>
   );
 };

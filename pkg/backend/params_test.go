@@ -50,48 +50,27 @@ func TestNormalizeIssueStatus(t *testing.T) {
 	}
 }
 
-func TestNormalizeBoolish(t *testing.T) {
-	trueVals := []string{"true", "TRUE", "yes", "1"}
-	falseVals := []string{"false", "FALSE", "no", "0"}
-
-	for _, v := range trueVals {
-		got, ok := normalizeBoolish(v)
-		if got != "true" || !ok {
-			t.Fatalf("normalizeBoolish(%q) = (%q,%v), want (true,true)", v, got, ok)
-		}
-	}
-	for _, v := range falseVals {
-		got, ok := normalizeBoolish(v)
-		if got != "false" || !ok {
-			t.Fatalf("normalizeBoolish(%q) = (%q,%v), want (false,true)", v, got, ok)
-		}
-	}
-	if _, ok := normalizeBoolish("maybe"); ok {
-		t.Fatal("normalizeBoolish(maybe) expected not ok")
-	}
-}
-
 func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 	q := QueryModel{
-		Site:     "site-123",
-		Device:   "dev-456",
-		MAC:      "00:11:22:33:44:55",
-		Priority: []string{"p2"},
-		Status:   []string{"resolved"},
+		SiteID:          "site-123",
+		NetworkDeviceID: "dev-456",
+		MACAddress:      "00:11:22:33:44:55",
+		Priority:        []string{"p2"},
+		Status:          []string{"resolved"},
 	}
 
 	params := buildAssuranceParamsFromQuery(q, 1700000000000, 1700003600000, 100, 1)
 
 	want := url.Values{
-		"siteId":     []string{"site-123"},
-		"deviceId":   []string{"dev-456"},
-		"macAddress": []string{"00:11:22:33:44:55"},
-		"priority":   []string{"P2"},
-		"status":     []string{"resolved"},
-		"limit":      []string{"100"},
-		"offset":     []string{"1"},
-		"startTime":  []string{"1700000000000"},
-		"endTime":    []string{"1700003600000"},
+		"siteId":          []string{"site-123"},
+		"networkDeviceId": []string{"dev-456"},
+		"macAddress":      []string{"00:11:22:33:44:55"},
+		"priority":        []string{"P2"},
+		"status":          []string{"resolved"},
+		"limit":           []string{"100"},
+		"offset":          []string{"1"},
+		"startTime":       []string{"1700000000000"},
+		"endTime":         []string{"1700003600000"},
 	}
 
 	if got := params.Encode(); got != want.Encode() {

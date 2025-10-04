@@ -21,47 +21,42 @@ export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
  *   to the correct API parameters.
  */
 export interface CatalystQuery extends DataQuery {
-  queryType?: string;
+  queryType: QueryType;
+  endpoint?: 'alerts' | 'siteHealth' | 'issues';
   limit?: number;
-  priority?: string[];
-  status?: string[];
-  device?: string;
-  mac?: string;
-  site?: string;
+  priority?: CatalystPriority[];
+  status?: CatalystIssueStatus[];
+  networkDeviceId?: string;
+  macAddress?: string;
+  siteId?: string;
   rule?: string;
   enrich?: boolean;
   siteType?: string;
   parentSiteName?: string;
   siteName?: string;
-  siteId?: string;
   parentSiteId?: string;
-  metric?: string[];
-  endpoint?: string;
-  deviceId?: string;
-  macAddress?: string;
-  issueStatus?: CatalystIssueStatus;
-  aiDriven?: string;
+  metrics?: string[];
 }
 
 /**
  * Defines the default values for a new query in the query editor.
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
+  queryType: 'alerts',
+  endpoint: 'issues',
   limit: 100,
-  priority: ['P1', 'P2'],
-  status: ['ACTIVE'],
-  enrich: true,
-  siteType: 'area',
+  priority: [],
+  status: [],
+  networkDeviceId: '',
+  macAddress: '',
+  siteId: '',
+  rule: '',
+  enrich: false,
+  siteType: '',
   parentSiteName: '',
   siteName: '',
-  siteId: '',
   parentSiteId: '',
-  metric: [],
-  endpoint: 'issues',
-  deviceId: '',
-  macAddress: '',
-  issueStatus: 'ACTIVE',
-  aiDriven: '',
+  metrics: [],
 };
 
 export const metricOptions = [

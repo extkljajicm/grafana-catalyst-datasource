@@ -160,21 +160,20 @@ func (v StringOrBool) String() string { return string(v) }
 // QueryModel represents the query structure sent from the frontend.
 // It includes all the filters and options available in the query editor.
 type QueryModel struct {
-	QueryType      string   `json:"queryType"`
-	Limit          *int64   `json:"limit,omitempty"`
-	Priority       []string `json:"priority,omitempty"`
-	Status         []string `json:"status,omitempty"`
-	Device         string   `json:"device,omitempty"`
-	MAC            string   `json:"mac,omitempty"`
-	Site           string   `json:"site,omitempty"`
-	Rule           string   `json:"rule,omitempty"`
-	Enrich         bool     `json:"enrich,omitempty"`
-	SiteType       string   `json:"siteType,omitempty"`
-	ParentSiteName string   `json:"parentSiteName,omitempty"`
-	SiteName       string   `json:"siteName,omitempty"`
-	ParentSiteId   string   `json:"parentSiteId,omitempty"`
-	SiteId         string   `json:"siteId,omitempty"`
-	Metrics        []string `json:"metric,omitempty"`
+	QueryType       string   `json:"queryType"`
+	Limit           *int64   `json:"limit,omitempty"`
+	Priority        []string `json:"priority,omitempty"`
+	Status          []string `json:"status,omitempty"`
+	NetworkDeviceID string   `json:"networkDeviceId,omitempty"`
+	MACAddress      string   `json:"macAddress,omitempty"`
+	SiteID          string   `json:"siteId,omitempty"`
+	Rule            string   `json:"rule,omitempty"`
+	Enrich          bool     `json:"enrich,omitempty"`
+	SiteType        string   `json:"siteType,omitempty"`
+	ParentSiteName  string   `json:"parentSiteName,omitempty"`
+	SiteName        string   `json:"siteName,omitempty"`
+	ParentSiteId    string   `json:"parentSiteId,omitempty"`
+	Metrics         []string `json:"metrics,omitempty"`
 
 	// TimeRange is populated by the backend from the query context.
 	TimeRange backend.TimeRange `json:"-"`

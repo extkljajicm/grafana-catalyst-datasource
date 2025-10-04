@@ -3,13 +3,6 @@
 // into the URL query parameters expected by the Catalyst Center API. It handles
 // normalization, validation, and formatting of filter values.
 
-// Package backend contains the core logic for the Catalyst datasource.
-// This file, params.go, is responsible for converting the frontend query model
-// into the URL query parameters expected by the Catalyst Center API. It handles
-// normalization, validation, and formatting of filter values.
-
-// (removed duplicate package and import statements)
-
 package backend
 
 import (
@@ -72,20 +65,6 @@ func normalizeIssueStatus(issueStatus, status string) (string, bool) {
 	return "", false
 }
 
-// normalizeBoolish converts various string representations of a boolean
-// (e.g., "true", "yes", "1") into a canonical "true" or "false" string.
-func normalizeBoolish(s string) (string, bool) {
-	v := strings.ToLower(strings.TrimSpace(s))
-	switch v {
-	case "true", "yes", "1":
-		return "true", true
-	case "false", "no", "0":
-		return "false", true
-	default:
-		return "", false
-	}
-}
-
 // clampLimit enforces sane bounds on the limit parameter, preventing excessively
 // large or invalid values from being sent to the API.
 func clampLimit(n, def, min, max int) int {
@@ -122,17 +101,17 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 	}
 
 	// Filters (skip empties)
-	if s := strings.TrimSpace(q.Site); s != "" {
+	if s := strings.TrimSpace(q.SiteID); s != "" {
 		v.Set("siteId", s)
 	}
-	if s := strings.TrimSpace(q.Device); s != "" {
-		v.Set("deviceId", s)
+	if s := strings.TrimSpace(q.NetworkDeviceID); s != "" {
+		v.Set("networkDeviceId", s)
 	}
-	if s := strings.TrimSpace(q.MAC); s != "" {
+	if s := strings.TrimSpace(q.MACAddress); s != "" {
 		v.Set("macAddress", s)
 	}
 
-	// Handle Priority: The API expects a comma-separated string.
+	// Handle Priority: The API supports multiple values as repeated query parameters.
 	if len(q.Priority) > 0 {
 		var validPriorities []string
 		for _, p := range q.Priority {
@@ -141,7 +120,7 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 			}
 		}
 		if len(validPriorities) > 0 {
-			v.Set("priority", strings.Join(validPriorities, ","))
+			v["priority"] = validPriorities
 		}
 	}
 
@@ -153,7 +132,7 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 			}
 		}
 		if len(validStatuses) > 0 {
-			v.Set("status", strings.Join(validStatuses, ","))
+			v["status"] = validStatuses
 		}
 	}
 

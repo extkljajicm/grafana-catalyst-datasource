@@ -100,6 +100,17 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		}
 		qm.TimeRange = q.TimeRange
 
+		// If a site name is provided for an alerts query, resolve it to an ID first.
+		if strings.TrimSpace(qm.QueryType) != "siteHealth" && qm.SiteName != "" {
+			siteID, err := d.getSiteIDByName(ctx, httpClient, inst, qm.SiteName)
+			if err != nil {
+				dr.Error = fmt.Errorf("failed to resolve site name '%s': %w", qm.SiteName, err)
+				resp.Responses[q.RefID] = dr
+				continue
+			}
+			qm.SiteID = siteID // Overwrite the SiteID field with the resolved ID.
+		}
+
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
 			// For siteHealth, we need to build a time series by making multiple API calls.
 			dr.Frames = d.querySiteHealthTimeSeries(ctx, inst, qm, q.TimeRange, q.Interval, q.RefID)
@@ -271,10 +282,10 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				return 0
 			}
 
-			siteID := getStr("siteId")
-			siteName := siteID // Fallback to ID if enrichment is disabled or fails.
-			if name, ok := siteIDToNameMap[siteID]; ok {
-				siteName = name // Use resolved name if available.
+			siteIDValue := getStr("siteId")
+			siteNameValue := siteIDValue // Fallback to ID if enrichment is disabled or fails.
+			if name, ok := siteIDToNameMap[siteIDValue]; ok {
+				siteNameValue = name // Use resolved name if available.
 			}
 
 			r := row{
@@ -284,9 +295,9 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				Severity: firstNonEmpty(getStr("priority"), getStr("severity")),
 				Status:   firstNonEmpty(getStr("issueStatus"), getStr("status")),
 				Category: firstNonEmpty(getStr("category"), getStr("type")),
-				Device:   firstNonEmpty(getStr("deviceId"), getStr("deviceIp"), getStr("device")),
+				Device:   firstNonEmpty(getStr("networkDeviceId"), getStr("deviceId"), getStr("deviceIp"), getStr("device")),
 				MAC:      firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
-				Site:     siteName,
+				Site:     siteNameValue,
 				Rule:     getStr("ruleId"),
 				Details:  firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
 			}
@@ -392,6 +403,49 @@ func (d *Datasource) getSiteNamesByID(ctx context.Context, httpClient *http.Clie
 		}
 	}
 	return nameMap, nil
+}
+
+// getSiteIDByName resolves a site name to its ID.
+// Note: This is inefficient as it fetches all sites. A more optimal solution
+// would use an API that allows filtering by name if available.
+func (d *Datasource) getSiteIDByName(ctx context.Context, httpClient *http.Client, inst *dsInstance, siteName string) (string, error) {
+	siteURL, err := SiteURL(inst.Settings.BaseURL)
+	if err != nil {
+		return "", fmt.Errorf("bad site baseUrl: %w", err)
+	}
+
+	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+	if err != nil {
+		return "", fmt.Errorf("token for site lookup: %w", err)
+	}
+
+	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, siteURL, nil)
+	httpReq.Header.Set("X-Auth-Token", token)
+	httpReq.Header.Set("Accept", "application/json")
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("site request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(httpResp.Body)
+		return "", fmt.Errorf("site endpoint returned %s: %s", httpResp.Status, string(body))
+	}
+
+	var envelope SiteEnvelope
+	if err := json.NewDecoder(httpResp.Body).Decode(&envelope); err != nil {
+		return "", fmt.Errorf("failed to decode site response: %w", err)
+	}
+
+	for _, site := range envelope.Response {
+		if site.Name == siteName {
+			return site.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("site with name '%s' not found", siteName)
 }
 
 // ---- CheckHealth ----
@@ -548,22 +602,23 @@ func firstNonZero(vals ...int64) int64 {
 }
 
 // querySiteHealthTimeSeries makes concurrent API calls to build a time series for site health.
-func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange, interval time.Duration, refID string) data.Frames {
+func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange, queryInterval time.Duration, refID string) data.Frames {
 	duration := timeRange.To.Sub(timeRange.From)
 	calculatedInterval := duration / 5
 
 	const minInterval = 1 * time.Minute
+	var stepInterval time.Duration
 	if calculatedInterval < minInterval {
-		interval = minInterval
+		stepInterval = minInterval
 	} else {
-		interval = calculatedInterval
+		stepInterval = calculatedInterval
 	}
 
 	var wg sync.WaitGroup
-	resultsChan := make(chan *data.Frame, int(duration/interval)+1)
+	resultsChan := make(chan *data.Frame, int(duration/stepInterval)+1)
 	httpClient := d.httpClientFor(inst.Settings)
 
-	for t := timeRange.From; !t.After(timeRange.To); t = t.Add(interval) {
+	for t := timeRange.From; !t.After(timeRange.To); t = t.Add(stepInterval) {
 		wg.Add(1)
 		go func(timestamp time.Time) {
 			defer wg.Done()
