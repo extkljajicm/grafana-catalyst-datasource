@@ -73,15 +73,11 @@ func TestNormalizeBoolish(t *testing.T) {
 
 func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 	q := QueryModel{
-		SiteID:      "site-123",
-		DeviceID:    "dev-456",
-		MacAddress:  "00:11:22:33:44:55",
-		Priority:    "p2",
-		IssueStatus: "resolved",
-		AIDriven:    StringOrBool("YES"),
-		RefID:       "A",
-		Severity:    "",
-		Status:      "",
+		Site:     "site-123",
+		Device:   "dev-456",
+		MAC:      "00:11:22:33:44:55",
+		Priority: []string{"p2"},
+		Status:   []string{"resolved"},
 	}
 
 	params := buildAssuranceParamsFromQuery(q, 1700000000000, 1700003600000, 100, 1)
@@ -92,7 +88,6 @@ func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 		"macAddress": []string{"00:11:22:33:44:55"},
 		"priority":   []string{"P2"},
 		"status":     []string{"resolved"},
-		"aiDriven":   []string{"true"},
 		"limit":      []string{"100"},
 		"offset":     []string{"1"},
 		"startTime":  []string{"1700000000000"},
@@ -106,7 +101,7 @@ func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 
 func TestBuildAssuranceParams_SkipEmpties(t *testing.T) {
 	q := QueryModel{
-		Severity: "P3", // legacy alias only
+		Priority: []string{"P3"}, // use Priority field as per new struct
 	}
 
 	params := buildAssuranceParamsFromQuery(q, 0, 0, -5, 0) // bad page/offset should be clamped/fixed

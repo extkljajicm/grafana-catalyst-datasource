@@ -11,8 +11,6 @@ import type {
   CoreApp,
   DataSourceInstanceSettings,
   MetricFindValue,
-  DataQueryRequest,
-  DataQueryResponse,
   ScopedVars,
 } from '@grafana/data';
 import {
