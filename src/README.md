@@ -1,113 +1,74 @@
-# Catalyst Datasource (Plugin Docs)
+# Catalyst Datasource for Grafana
 
 ![Logo](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/main/src/img/logo.svg)
 
-Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly from Grafana via the Catalyst REST API.
+Query **Cisco Catalyst Center** (formerly DNA Center) assurance data directly from Grafana. This plugin connects to the Catalyst REST API to fetch network health, alerts, and site information, enabling you to build comprehensive monitoring dashboards.
 
 ![Screenshot](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/main/src/img/screenshot-1.png)
 
 ---
 
-
 ## Features
 
-- **Endpoint selection:** Choose which Catalyst Center API endpoint to query (e.g., issues/alerts or site health) in the data source config.
-- **Site Health support:** Fetch overall health metrics for all sites from `/dna/intent/api/v1/site-health`.
-- **Dynamic filters:** Query editor adapts filters based on selected endpoint.
-  - For `siteHealth`: Filter by Site Type, Parent Site Name, Site Name, Parent Site ID, and Site ID.
-  - For `alerts`: Filter by Site, Device, MAC, Priority, Status, and AI-driven.
-- **Time series selection:** Select which site health metrics to visualize (e.g., Client Count, Health Score, Wired/Wireless Client Count).
-- Fetch issues from `/dna/data/api/v1/assuranceIssues` (existing)
-- Pagination uses one-based offset
-- Filters: **Site**, **Device**, **MAC**, **Priority**, **Issue Status**, **AI-driven**, **Limit**
-- Variable support: **priorities**, **statuses**, **sites**, **devices**, **macs**
-- Secure credentials via Grafana `secureJsonData`
-- Go backend + React/TypeScript frontend
-- Token handling:
-  - Auto-fetch via `/dna/system/api/v1/auth/token` using Basic Auth
-  - Cache with expiry (reads headers/body when available)
-  - Manual override with pre-issued API token
+- **Dual Endpoint Support**: Query both `Alerts` (assurance issues) and `Site Health` endpoints.
+- **Dynamic Query Editor**: The UI adapts to the selected endpoint, showing relevant filters.
+  - **For Alerts**: Filter by Site, Device, MAC, Priority, and Status.
+  - **For Site Health**:
+    - Build time series visualizations with a dynamic interval (1/5th of the selected time range).
+    - Filter by Site Type, Parent Site Name, and Site Name.
+    - Select specific metrics to visualize (e.g., Client Count, Health Score, AP Count).
+- **Template Variable Support**: Dynamically populate dashboard variables with `priorities`, `issue statuses`, `sites`, `devices`, and `MAC addresses`.
+- **Secure Credential Handling**: Uses Grafana's `secureJsonData` to encrypt credentials.
+- **Automatic Token Management**: The Go backend handles API token acquisition and refresh automatically.
 
 ---
 
 ## Requirements
 
 - Grafana **v12.1.0+**
-- Cisco Catalyst Center with API access and network reachability from Grafana
+- Cisco Catalyst Center with API access and network reachability from the Grafana instance.
 
 ---
 
-## Configuration (Data Source)
+## Configuration
 
-- **Base URL** — The base HTTP endpoint for your Cisco Catalyst Center instance. The plugin will automatically append the correct API paths (e.g., `/dna/system/api/v1/auth/token`).
-  
-  | ✅ Good | ❌ Bad |
-  | :--- | :--- |
-  | `https://catalyst.example.com` | `https://catalyst.example.com/dna` |
-  | `https://proxy.corp/catalyst` | `https://catalyst.example.com/dna/intent/api` |
+Set up the datasource by providing the following:
 
-- **Skip TLS verification** — only for self-signed certs (use with care)
-- **Username / Password** — used by backend to obtain a short-lived `X-Auth-Token`
-- **API Token (override)** — optional; paste an existing token to bypass login
+- **Base URL**: The root URL of your Catalyst Center instance (e.g., `https://catalyst.example.com`). The plugin handles API paths automatically.
+- **Credentials**:
+  - **Username/Password**: For token-based authentication.
+  - **API Token (Optional)**: Use a pre-issued token to bypass username/password login.
+- **Skip TLS Verification**: Enable this only for development environments with self-signed certificates.
 
-Click **Save & test** to verify connectivity.
+Click **Save & test** to confirm connectivity.
 
 ---
 
+## Query Editor
 
-## Query Editor (Panels)
+### Alerts Endpoint
 
-Fields (dynamic based on endpoint):
-- **Endpoint** — select which API endpoint to query (e.g., issues/alerts, site health)
-- For **Site Health**:
-  - **Site Type** — filter by site type (`AREA`, `BUILDING`)
-  - **Limit** — max rows returned (1–50, default 25)
-  - **Offset** — pagination
-  - **Timestamp** — optional time filter
-  - **Parent Site Name** — filter by parent site name
-  - **Site Name** — filter by site name
-  - **Metrics** — select which site health metrics to visualize (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.)
-- For **Issues/Alerts** (existing):
-  - **Site ID** — filter by site (UUID)
-  - **Device ID** — filter by device (UUID)
-  - **MAC Address** — optional MAC filter (`aa:bb:cc:dd:ee:ff`)
-  - **Priority** — CSV: `P1,P2,P3,P4`
-  - **Issue Status** — CSV: `ACTIVE,IGNORED,RESOLVED`
-  - **AI Driven** — `YES`/`NO` (or blank for any)
-  - **Limit** — maximum rows returned (default 100)
+- **Site ID**: Filter by site UUID.
+- **Device ID**: Filter by device UUID.
+- **MAC Address**: Filter by client MAC address.
+- **Priority**: Comma-separated list (e.g., `P1,P2`).
+- **Status**: Comma-separated list (`ACTIVE,RESOLVED,IGNORED`).
+- **Limit**: Maximum number of issues to return.
 
-Variables are supported in text inputs.
+### Site Health Endpoint
 
-Returned columns (for **Table** panels):
-- Time, Issue ID, Title
-- Priority/Severity, Status, Category
-- Device ID, MAC, Site ID, Rule, Details
+- **Site Type**: Filter by `AREA` or `BUILDING`.
+- **Parent Site Name / Site Name**: Filter by site hierarchy.
+- **Metrics**: Select one or more metrics to visualize as a time series (e.g., `clientCount`, `healthScore`, `accessPointCount`).
 
 ---
 
+## Template Variables
 
-## Variable Query Editor
+Use the following functions in the Variable Query Editor to create dynamic filters:
 
-Available functions:
-- `priorities()`
-- `issueStatuses()`
-- `sites(search:"<text>")`
-- `devices(search:"<text>")`
-- `macs(search:"<text>")`
-
-The optional `search` parameter narrows results (supports Grafana variables).
-
----
-
-## Notes & Troubleshooting
-
-- Ensure Grafana can reach your Catalyst Center (VPN/proxy/firewall).
-- Prefer enabling TLS verification unless you have a valid reason not to.
-- 401/403 responses: the backend will refresh the token and retry once.
-- If you use a reverse proxy, include its prefix in the **Base URL**; the plugin preserves it for both `/dna/system/api/v1/auth/token` and `/dna/intent/api/v1/issues`.
-
----
-
-## License
-
-Apache-2.0 © extkljajicm
+- `priorities()`: Returns `P1`, `P2`, `P3`, `P4`.
+- `issueStatuses()`: Returns `ACTIVE`, `RESOLVED`, `IGNORED`.
+- `sites(search:"<text>")`: Fetches unique site names from recent issues.
+- `devices(search:"<text>")`: Fetches unique device IDs from recent issues.
+- `macs(search:"<text>")`: Fetches unique MAC addresses from recent issues.
