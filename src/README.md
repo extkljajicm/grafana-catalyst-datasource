@@ -4,7 +4,7 @@
 
 Query **Cisco Catalyst Center** (formerly DNA Center) assurance data directly from Grafana. This plugin connects to the Catalyst REST API to fetch network health, alerts, and site information, enabling you to build comprehensive monitoring dashboards.
 
-![Screenshot](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/main/src/img/screenshot-1.png)
+![Screenshot](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/feature/endpoint-filter/src/img/screenshot-1.png)
 
 ---
 
