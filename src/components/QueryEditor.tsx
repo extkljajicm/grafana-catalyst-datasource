@@ -42,11 +42,27 @@ const STATUS_OPTIONS: Array<SelectableValue<CatalystIssueStatus>> = [
   { label: 'IGNORED', value: 'IGNORED' },
 ];
 
-const METRIC_OPTIONS: Array<SelectableValue<string>> = [
-  { label: 'Number of Clients', value: 'numberOfClients' },
+const siteHealthMetricOptions: Array<SelectableValue<string>> = [
+  { label: 'Client Count', value: 'clientCount' },
+  { label: 'Total Connected Wired Clients', value: 'totalNumberOfConnectedWiredClients' },
+  { label: 'Total Active Wireless Clients', value: 'totalNumberOfActiveWirelessClients' },
+  { label: 'Healthy Network Device %', value: 'healthyNetworkDevicePercentage' },
+  { label: 'Healthy Clients %', value: 'healthyClientsPercentage' },
+  { label: 'Wired Client Health', value: 'clientHealthWired' },
+  { label: 'Wireless Client Health', value: 'clientHealthWireless' },
+  { label: 'Number of Network Devices', value: 'numberOfNetworkDevice' },
   { label: 'Network Health Average', value: 'networkHealthAverage' },
-  { label: 'Wired Client Count', value: 'numberOfWiredClients' },
-  { label: 'Wireless Client Count', value: 'numberOfWirelessClients' },
+  { label: 'Network Health (Access)', value: 'networkHealthAccess' },
+  { label: 'Network Health (Core)', value: 'networkHealthCore' },
+  { label: 'Network Health (AP)', value: 'networkHealthAP' },
+  { label: 'Network Health (WLC)', value: 'networkHealthWLC' },
+  { label: 'Network Health (Switch)', value: 'networkHealthSwitch' },
+  { label: 'Access Devices (Total)', value: 'accessTotalCount' },
+  { label: 'Access Devices (Good)', value: 'accessGoodCount' },
+  { label: 'AP Devices (Good)', value: 'apDeviceGoodCount' },
+  { label: 'AP Devices (Total)', value: 'apDeviceTotalCount' },
+  { label: 'Switch Devices (Good)', value: 'switchDeviceGoodCount' },
+  { label: 'Switch Devices (Total)', value: 'switchDeviceTotalCount' },
 ];
 
 // Define a type for the filter state
@@ -122,7 +138,7 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
           </InlineField>
           <Field label="Metrics">
             <MultiSelect
-              options={METRIC_OPTIONS}
+              options={siteHealthMetricOptions}
               value={filters.metrics}
               onChange={(v) => setFilters({ ...filters, metrics: v.map((item) => item.value!) })}
             />

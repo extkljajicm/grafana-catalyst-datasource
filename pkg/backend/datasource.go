@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -112,8 +111,12 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		}
 
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
-			// For siteHealth, we need to build a time series by making multiple API calls.
-			dr.Frames = d.querySiteHealthTimeSeries(ctx, inst, qm, q.TimeRange, q.Interval, q.RefID)
+			frame, err := d.querySiteHealth(ctx, inst, qm, q.RefID)
+			if err != nil {
+				dr.Error = err
+			} else {
+				dr.Frames = append(dr.Frames, frame)
+			}
 			resp.Responses[q.RefID] = dr
 			continue
 		}
@@ -601,71 +604,16 @@ func firstNonZero(vals ...int64) int64 {
 	return 0
 }
 
-// querySiteHealthTimeSeries makes concurrent API calls to build a time series for site health.
-func (d *Datasource) querySiteHealthTimeSeries(ctx context.Context, inst *dsInstance, qm QueryModel, timeRange backend.TimeRange, queryInterval time.Duration, refID string) data.Frames {
-	duration := timeRange.To.Sub(timeRange.From)
-	calculatedInterval := duration / 5
-
-	const minInterval = 1 * time.Minute
-	var stepInterval time.Duration
-	if calculatedInterval < minInterval {
-		stepInterval = minInterval
-	} else {
-		stepInterval = calculatedInterval
-	}
-
-	var wg sync.WaitGroup
-	resultsChan := make(chan *data.Frame, int(duration/stepInterval)+1)
+func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel, refID string) (*data.Frame, error) {
 	httpClient := d.httpClientFor(inst.Settings)
-
-	for t := timeRange.From; !t.After(timeRange.To); t = t.Add(stepInterval) {
-		wg.Add(1)
-		go func(timestamp time.Time) {
-			defer wg.Done()
-			// Create a new QueryModel for this specific timestamp.
-			requestQuery := qm
-			requestQuery.TimeRange = backend.TimeRange{From: timestamp, To: timestamp}
-
-			frame, err := d.querySingleSiteHealth(ctx, inst, httpClient, requestQuery, refID)
-			if err != nil {
-				log.DefaultLogger.Error("Error querying single site health", "error", err)
-				return
-			}
-			resultsChan <- frame
-		}(t)
-	}
-
-	wg.Wait()
-	close(resultsChan)
-
-	// We need to merge the frames from the channel.
-	// This is a simplified example; a real implementation would merge these frames into a single time series frame.
-	var frames data.Frames
-	for frame := range resultsChan {
-		frames = append(frames, frame)
-	}
-
-	if len(frames) == 0 {
-		return data.Frames{
-			&data.Frame{
-				RefID: refID,
-				Meta: &data.FrameMeta{
-					Notices: []data.Notice{{Severity: data.NoticeSeverityInfo, Text: "No site health data found for the selected time range."}},
-				},
-			},
-		}
-	}
-
-	return frames
-}
-
-func (d *Datasource) querySingleSiteHealth(ctx context.Context, inst *dsInstance, httpClient *http.Client, qm QueryModel, refID string) (*data.Frame, error) {
 	siteHealthURL, err := SiteHealthURL(inst.Settings.BaseURL)
 	if err != nil {
 		return nil, err
 	}
 
-	params := buildSiteHealthParamsFromQuery(qm, 1000, 1) // High limit for a single point in time
+	// Use the "To" time from the time range to get the latest data.
+	params := buildSiteHealthParamsFromQuery(qm, qm.TimeRange.To.UnixMilli())
+
 	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("token: %w", err)
@@ -693,27 +641,51 @@ func (d *Datasource) querySingleSiteHealth(ctx context.Context, inst *dsInstance
 		return nil, fmt.Errorf("site-health response: %w", err)
 	}
 
-	// This part needs to be adapted to create a frame with a single time point.
-	// For simplicity, this example returns a frame similar to the original implementation,
-	// but it should be structured as a time series.
-	frame := data.NewFrame(refID)
-	timeField := data.NewField("Time", nil, []time.Time{qm.TimeRange.To})
-	frame.Fields = append(frame.Fields, timeField)
+	// metricNameMapping translates frontend metric names to backend API field names.
+	metricNameMapping := map[string]string{
+		"clientCount": "numberOfClients",
+		// Add other mappings here if needed
+	}
 
-	// Add fields for metrics
+	// Create the data frame
+	frame := data.NewFrame(refID)
+	frame.Fields = append(frame.Fields, data.NewField("siteName", nil, []string{}))
+
+	// Dynamically add fields based on selected metrics
+	metricFields := make(map[string]*data.Field)
 	for _, metric := range qm.Metrics {
-		field := data.NewField(metric, nil, make([]*float64, 1))
+		field := data.NewField(metric, nil, make([]*int64, 0))
+		metricFields[metric] = field
 		frame.Fields = append(frame.Fields, field)
 	}
 
-	// This logic would need to be more sophisticated to handle multiple sites and aggregate.
-	// Assuming one site for simplicity.
-	if len(env.Response) > 0 {
-		site := env.Response[0]
-		for i, metric := range qm.Metrics {
-			if val, ok := site[metric].(float64); ok {
-				frame.Fields[i+1].Set(0, &val)
+	// Populate the frame
+	for _, siteData := range env.Response {
+		siteName := ""
+		if s, ok := siteData["siteName"].(string); ok {
+			siteName = s
+		}
+		frame.Fields[0].Append(siteName)
+
+		for metric, field := range metricFields {
+			apiMetricName, ok := metricNameMapping[metric]
+			if !ok {
+				apiMetricName = metric // fallback to the original name if no mapping is found
 			}
+			var value *int64
+			if val, ok := siteData[apiMetricName]; ok {
+				switch v := val.(type) {
+				case float64:
+					v64 := int64(v)
+					value = &v64
+				case int64:
+					value = &v
+				case json.Number:
+					n, _ := v.Int64()
+					value = &n
+				}
+			}
+			field.Append(value)
 		}
 	}
 

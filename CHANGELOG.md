@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2025-10-09
+
+### Changed
+- **Site Health Query:** Refactored the `siteHealth` query to remove the time series generation. It now makes a single API call to fetch the current values and displays them in a table, simplifying the visualization and reducing backend load.
+
+### Added
+- **Expanded Site Health Metrics:** Added a comprehensive list of new metrics to the `siteHealth` query editor, including device counts (`accessTotalCount`, `apDeviceTotalCount`, etc.) and more detailed health scores.
+
 ## [1.2.0] - 2025-09-30
 
 ### Fixed

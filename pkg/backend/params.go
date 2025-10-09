@@ -12,19 +12,20 @@ import (
 )
 
 // buildSiteHealthParamsFromQuery converts a QueryModel into url.Values for the site-health endpoint.
-func buildSiteHealthParamsFromQuery(q QueryModel, pageSize, offset int) url.Values {
+func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64) url.Values {
 	v := url.Values{}
-	v.Set("limit", strconv.Itoa(clampLimit(pageSize, 25, 1, 50)))
-	if offset < 1 {
-		offset = 1
-	}
-	v.Set("offset", strconv.Itoa(offset))
 	if s := strings.TrimSpace(q.SiteType); s != "" {
 		v.Set("siteType", s)
 	}
+	if s := strings.TrimSpace(q.SiteID); s != "" {
+		v.Set("siteId", s)
+	}
+	if s := strings.TrimSpace(q.ParentSiteId); s != "" {
+		v.Set("parentSiteId", s)
+	}
 	// Add time range if present
-	if !q.TimeRange.To.IsZero() {
-		v.Set("timestamp", strconv.FormatInt(q.TimeRange.To.UnixMilli(), 10))
+	if timestamp > 0 {
+		v.Set("timestamp", strconv.FormatInt(timestamp, 10))
 	}
 	return v
 }
