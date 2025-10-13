@@ -20,6 +20,7 @@ import {
   type CatalystVariableQuery,
 } from './types';
 import { parseError, formatErrorMessage } from './errors';
+import { logger } from './logger';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
 
@@ -30,9 +31,12 @@ const MAX_PAGES = 5; // variable helper only
 
 export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJsonData> {
   instanceSettings: InstanceSettings;
+  private log = logger.child('DataSource');
+
   constructor(instanceSettings: InstanceSettings) {
     super(instanceSettings);
     this.instanceSettings = instanceSettings;
+    this.log.debug('DataSource initialized', { uid: instanceSettings.uid });
   }
 
   // Returns the default query structure for new panels/targets.
@@ -123,6 +127,8 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
           break;
         }
 
+        this.log.debug('Fetched issues for variable', { page, count: arr.length });
+
         for (const it of arr) {
           for (const k of keys) {
             const v = it?.[k];
@@ -143,7 +149,7 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
       } catch (error) {
         // Parse and log error, but continue to return any data we've collected so far
         const catalystError = parseError(error);
-        console.error('Error fetching issues for variable:', formatErrorMessage(catalystError));
+        this.log.error('Error fetching issues for variable', catalystError, { page, collectedSoFar: out.size });
         // If this is the first page and we have no data, propagate the error
         if (page === 0 && out.size === 0) {
           throw catalystError;
