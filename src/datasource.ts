@@ -19,6 +19,8 @@ import {
   type CatalystJsonData,
   type CatalystVariableQuery,
 } from './types';
+import { parseError, formatErrorMessage } from './errors';
+import { logger } from './logger';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
 
@@ -29,9 +31,12 @@ const MAX_PAGES = 5; // variable helper only
 
 export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJsonData> {
   instanceSettings: InstanceSettings;
+  private log = logger.child('DataSource');
+
   constructor(instanceSettings: InstanceSettings) {
     super(instanceSettings);
     this.instanceSettings = instanceSettings;
+    this.log.debug('DataSource initialized', { uid: instanceSettings.uid });
   }
 
   // Returns the default query structure for new panels/targets.
@@ -114,30 +119,44 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
         offset: String(offset),
       });
 
-      // getResource calls the backend's CallResource handler, which proxies to the Catalyst Center API.
-      const data: any = await this.getResource<any>(`issues?${params.toString()}`);
-      const arr: any[] = Array.isArray(data) ? data : data?.response ?? [];
-      if (!arr.length) {
-        break;
-      }
+      try {
+        // getResource calls the backend's CallResource handler, which proxies to the Catalyst Center API.
+        const data: any = await this.getResource<any>(`issues?${params.toString()}`);
+        const arr: any[] = Array.isArray(data) ? data : data?.response ?? [];
+        if (!arr.length) {
+          break;
+        }
 
-      for (const it of arr) {
-        for (const k of keys) {
-          const v = it?.[k];
-          if (typeof v === 'string' && v.trim()) {
-            const val = v.trim();
-            if (!s || val.toLowerCase().includes(s)) {
-              out.add(val);
+        this.log.debug('Fetched issues for variable', { page, count: arr.length });
+
+        for (const it of arr) {
+          for (const k of keys) {
+            const v = it?.[k];
+            if (typeof v === 'string' && v.trim()) {
+              const val = v.trim();
+              if (!s || val.toLowerCase().includes(s)) {
+                out.add(val);
+              }
+              break;
             }
-            break;
           }
         }
-      }
 
-      if (arr.length < PAGE_SIZE) {
+        if (arr.length < PAGE_SIZE) {
+          break;
+        }
+        offset += PAGE_SIZE;
+      } catch (error) {
+        // Parse and log error, but continue to return any data we've collected so far
+        const catalystError = parseError(error);
+        this.log.error('Error fetching issues for variable', catalystError, { page, collectedSoFar: out.size });
+        // If this is the first page and we have no data, propagate the error
+        if (page === 0 && out.size === 0) {
+          throw catalystError;
+        }
+        // Otherwise, return what we have so far
         break;
       }
-      offset += PAGE_SIZE;
     }
 
     return Array.from(out)
