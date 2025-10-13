@@ -20,6 +20,12 @@ Query **Cisco Catalyst Center** (formerly DNA Center) assurance data directly fr
 - **Template Variable Support**: Dynamically populate dashboard variables with `priorities`, `issue statuses`, `sites`, `devices`, and `MAC addresses`.
 - **Secure Credential Handling**: Uses Grafana's `secureJsonData` to encrypt credentials.
 - **Automatic Token Management**: The Go backend handles API token acquisition and refresh automatically.
+- **Enhanced Error Handling**: Structured error messages with actionable remediation steps.
+- **Input Validation**: Real-time validation of configuration and query parameters.
+- **Performance Optimization**: In-memory caching with TTL to reduce redundant API calls.
+- **Structured Logging**: Configurable log levels for better debugging and monitoring.
+- **Inline Help**: Contextual tooltips for all configuration fields.
+- **Comprehensive Testing**: 82+ unit tests covering all critical functionality.
 
 ---
 
@@ -72,3 +78,56 @@ Use the following functions in the Variable Query Editor to create dynamic filte
 - `sites(search:"<text>")`: Fetches unique site names from recent issues.
 - `devices(search:"<text>")`: Fetches unique device IDs from recent issues.
 - `macs(search:"<text>")`: Fetches unique MAC addresses from recent issues.
+
+---
+
+## Troubleshooting
+
+For common issues and solutions, see [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
+
+### Quick Debugging
+
+Enable debug logging in browser console:
+```javascript
+localStorage.setItem('catalyst_log_level', 'DEBUG');
+```
+
+Then reload Grafana and check browser console for detailed logs.
+
+---
+
+## Development
+
+For developers contributing to this plugin, see [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md).
+
+### Quick Start
+
+```bash
+# Install dependencies
+npm ci
+
+# Run tests
+npm test
+
+# Start development server
+npm run dev
+
+# Build plugin
+npm run build
+```
+
+---
+
+## Documentation
+
+- **User Guide**: This file (README.md)
+- **Developer Guide**: [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md)
+- **Troubleshooting**: [TROUBLESHOOTING.md](../TROUBLESHOOTING.md)
+- **Enhancement Plan**: [enhance_grafana_datasource.md](../enhance_grafana_datasource.md)
+- **Changelog**: [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+## License
+
+Apache-2.0 © extkljajicm
