@@ -122,6 +122,9 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 		if len(validPriorities) > 0 {
 			v.Set("priority", strings.Join(validPriorities, ","))
 		}
+	} else if norm, ok := normalizePriority("", q.Severity); ok {
+		// Fallback to legacy Severity field if Priority array is empty
+		v.Set("priority", norm)
 	}
 
 	if st, ok := normalizeIssueStatus(q.IssueStatus, q.Status); ok {

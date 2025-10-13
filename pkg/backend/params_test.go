@@ -76,7 +76,7 @@ func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 		SiteID:      "site-123",
 		DeviceID:    "dev-456",
 		MacAddress:  "00:11:22:33:44:55",
-		Priority:    "p2",
+		Priority:    []string{"p2"},
 		IssueStatus: "resolved",
 		AIDriven:    StringOrBool("YES"),
 		RefID:       "A",
