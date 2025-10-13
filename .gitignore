@@ -1,3 +1,13 @@
+# ===================================================================
+# Comprehensive .gitignore with a focus on security and best practices
+# Merged from multiple standard sources and security recommendations.
+# ===================================================================
+
+# -------------------------------------------------------------------
+# Security - Credentials & Secrets (CRITICAL) 🛡️
+# NEVER commit secrets, private keys, API keys, or credentials.
+# -------------------------------------------------------------------
+
 # Environment variables
 # Often contain database passwords, API keys, and other secrets.
 .env
@@ -179,4 +189,76 @@ lib-cov/
 *.vsix
 
 # JetBrains (IntelliJ, PyCharm, etc.)
-.idea
+.idea/
+
+# Vim / Neovim
+*.swp
+*.swo
+
+---
+
+# -------------------------------------------------------------------
+# Containerization 🐳
+# -------------------------------------------------------------------
+# Local Docker Compose overrides can contain secrets or local paths.
+docker-compose.override.yml
+
+---
+
+# -------------------------------------------------------------------
+# OS-Specific Files
+# -------------------------------------------------------------------
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+*:Zone.Identifier
+
+---
+
+# -------------------------------------------------------------------
+# General Backup & Temporary Files
+# -------------------------------------------------------------------
+*.bak
+*.gho
+*.ori
+*.orig
+*.tmp
+*.rej
