@@ -28,7 +28,7 @@ sudo usermod -aG docker $USER
 
 
 ```bash
-git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
+git clone https://github.com/kljama/grafana-catalyst-datasource.git
 cd grafana-catalyst-datasource
 npm ci
 ```
@@ -148,4 +148,4 @@ Output: `grafana-catalyst-datasource-<version>.zip` in the repo root.
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama

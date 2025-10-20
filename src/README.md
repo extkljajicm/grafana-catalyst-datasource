@@ -1,10 +1,10 @@
 # Catalyst Datasource (Plugin Docs)
 
-![Logo](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/main/src/img/logo.svg)
+![Logo](https://raw.githubusercontent.com/kljama/grafana-catalyst-datasource/main/src/img/logo.svg)
 
 Query **Cisco Catalyst Center (formerly DNA Center)** issues/alerts directly from Grafana via the Catalyst REST API.
 
-![Screenshot](https://raw.githubusercontent.com/extkljajicm/grafana-catalyst-datasource/main/src/img/screenshot-1.png)
+![Screenshot](https://raw.githubusercontent.com/kljama/grafana-catalyst-datasource/main/src/img/screenshot-1.png)
 
 ---
 
@@ -92,4 +92,4 @@ The optional `search` parameter narrows results (supports Grafana variables).
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama
