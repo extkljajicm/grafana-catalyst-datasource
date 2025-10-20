@@ -23,6 +23,12 @@ type tokenManager struct {
 	cache map[string]tokenEntry // key: instance UID
 }
 
+// tokenEntry represents a cached authentication token and its expiry time.
+type tokenEntry struct {
+	Token     string
+	ExpiresAt int64 // Unix timestamp
+}
+
 // newTokenManager creates a new token manager with an empty cache.
 func newTokenManager() *tokenManager {
 	return &tokenManager{

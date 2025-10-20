@@ -1,8 +1,5 @@
-// QueryEditor: Main query configuration UI for Catalyst datasource in Grafana.
-// Allows users to filter alerts/issues by site, device, MAC, priority, status, AI-driven, and more.
-// Uses debounced local state to avoid excessive backend requests.
 import React, { useEffect, useRef, useState } from 'react';
-import { Field, Input, InlineField, MultiSelect, Switch } from '@grafana/ui';
+import { Field, Input, InlineField, MultiSelect, Switch, AsyncSelect, Select } from '@grafana/ui';
 import type { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { DataSource } from '../datasource';
 import {
@@ -66,11 +63,15 @@ const siteHealthMetricOptions: Array<SelectableValue<string>> = [
 ];
 
 // Define a type for the filter state
-type Filters = Omit<Partial<CatalystQuery>, 'refId' | 'queryType' | 'endpoint'>;
+type Filters = Omit<Partial<CatalystQuery>, 'refId' | 'queryType' | 'enrich'>;
 
-const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) => {
-  // Get endpoint from config
-  const endpoint = query.endpoint ?? 'alerts';
+const queryTypeOptions: Array<SelectableValue<QueryType>> = [
+  { label: 'Assurance Issues', value: 'assuranceIssues' },
+  { label: 'Site Health', value: 'siteHealth' },
+];
+
+const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, datasource }) => {
+  const { queryType } = query;
 
   // Unified state for all filters
   const [filters, setFilters] = useState<Filters>({
@@ -83,7 +84,8 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
     metrics: query.metrics ?? DEFAULT_QUERY.metrics,
     parentSiteName: query.parentSiteName ?? DEFAULT_QUERY.parentSiteName,
     siteName: query.siteName ?? DEFAULT_QUERY.siteName,
-    enrich: query.enrich ?? DEFAULT_QUERY.enrich,
+    aiDriven: query.aiDriven ?? DEFAULT_QUERY.aiDriven,
+    isGlobal: query.isGlobal ?? DEFAULT_QUERY.isGlobal,
   });
 
   // Debounced version of the filters
@@ -95,7 +97,6 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
   useEffect(() => {
     const next: CatalystQuery = {
       ...query,
-      queryType: endpoint as QueryType,
       ...debouncedFilters,
     };
     const sig = JSON.stringify(next);
@@ -103,14 +104,48 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
     if (sig !== lastSig.current) {
       lastSig.current = sig;
       onChange(next);
-      onRunQuery();
+      // Do NOT auto-run query; only update state.
     }
-  }, [debouncedFilters, endpoint, onChange, onRunQuery, query]);
+  }, [debouncedFilters, onChange, query]);
+
+  const loadSiteOptions = async (inputValue: string) => {
+    try {
+      const sites = await datasource.getResource('sites');
+      const siteOptions = sites.map((site: { name: string; id: string }) => ({
+        label: site.name,
+        value: site.id,
+      }));
+
+      if (!inputValue) {
+        return siteOptions;
+      }
+
+      const filteredSites = siteOptions.filter((option: SelectableValue<string>) =>
+        option.label!.toLowerCase().includes(inputValue.toLowerCase())
+      );
+
+      return filteredSites;
+    } catch (error) {
+      console.error('Failed to load site options', error);
+      return [];
+    }
+  };
 
   // Render common and endpoint-specific filters
   return (
     <div className="gf-form-group">
-      {endpoint === 'siteHealth' ? (
+      <InlineField label="Query Type" labelWidth={14}>
+        <Select
+          width={40}
+          options={queryTypeOptions}
+          value={queryType}
+          onChange={(v: SelectableValue<QueryType>) => {
+            onChange({ ...query, queryType: v.value! });
+          }}
+        />
+      </InlineField>
+
+      {queryType === 'siteHealth' ? (
         <>
           <InlineField label="Site Type" labelWidth={14}>
             <Input
@@ -128,12 +163,20 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
               placeholder="Filter by parent site name"
             />
           </InlineField>
-          <InlineField label="Site Name" labelWidth={14}>
-            <Input
+          <InlineField label="Site" labelWidth={14}>
+            <AsyncSelect
+              isMulti
               width={40}
-              value={filters.siteName}
-              onChange={(e) => setFilters({ ...filters, siteName: e.currentTarget.value })}
-              placeholder="Filter by site name"
+              loadOptions={loadSiteOptions}
+              defaultOptions
+              value={filters.siteId?.map((id, index) => ({ label: filters.siteName?.[index] || id, value: id }))}
+              onChange={(v) => {
+                const siteIds = v.map((item: SelectableValue<string>) => item.value!);
+                const siteNames = v.map((item: SelectableValue<string>) => item.label!);
+                setFilters({ ...filters, siteId: siteIds, siteName: siteNames });
+              }}
+              isClearable
+              placeholder="Select a site"
             />
           </InlineField>
           <Field label="Metrics">
@@ -146,12 +189,20 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
         </>
       ) : (
         <>
-          <InlineField label="Site Name" labelWidth={14}>
-            <Input
+          <InlineField label="Site" labelWidth={14}>
+            <AsyncSelect
+              isMulti
               width={40}
-              value={filters.siteName}
-              onChange={(e) => setFilters({ ...filters, siteName: e.currentTarget.value, siteId: '' })}
-              placeholder="Enter site name (will resolve to ID)"
+              loadOptions={loadSiteOptions}
+              defaultOptions
+              value={filters.siteId?.map((id, index) => ({ label: filters.siteName?.[index] || id, value: id }))}
+              onChange={(v) => {
+                const siteIds = v.map((item: SelectableValue<string>) => item.value!);
+                const siteNames = v.map((item: SelectableValue<string>) => item.label!);
+                setFilters({ ...filters, siteId: siteIds, siteName: siteNames });
+              }}
+              isClearable
+              placeholder="Select sites to filter"
             />
           </InlineField>
           <InlineField label="Device ID" labelWidth={14}>
@@ -193,10 +244,16 @@ const QueryEditor: React.FC<Props> = ({ query, onChange, onRunQuery, range }) =>
               placeholder="100"
             />
           </InlineField>
-          <Field label="Enrich with Site Names">
+          <Field label="AI-Driven" description="If enabled, only returns issues identified by the AI engine.">
             <Switch
-              value={filters.enrich}
-              onChange={(e) => setFilters({ ...filters, enrich: e.currentTarget.checked })}
+              value={!!filters.aiDriven}
+              onChange={(e) => setFilters({ ...filters, aiDriven: e.currentTarget.checked })}
+            />
+          </Field>
+          <Field label="Global Issues Only" description="If enabled, only returns issues that impact multiple sites or devices.">
+            <Switch
+              value={!!filters.isGlobal}
+              onChange={(e) => setFilters({ ...filters, isGlobal: e.currentTarget.checked })}
             />
           </Field>
         </>

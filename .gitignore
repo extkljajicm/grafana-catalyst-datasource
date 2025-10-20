@@ -85,3 +85,7 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Copilot
+.github/copilot-instructions.md
+

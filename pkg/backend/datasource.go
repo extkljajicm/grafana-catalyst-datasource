@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -18,10 +19,12 @@ import (
 )
 
 // Datasource is the main backend implementation for the Catalyst datasource.
-// It handles all backend operations: querying data, checking health, and
-// processing resource calls.
+// It holds shared resources like the token manager and site translators.
 type Datasource struct {
 	tm *tokenManager
+	// A map of site translators, one for each datasource instance UID.
+	translators   map[string]*SiteTranslator
+	translatorMux sync.Mutex
 }
 
 // dsInstance represents a single configured instance of the datasource.
@@ -31,16 +34,30 @@ type dsInstance struct {
 	UID      string
 }
 
-// NewDatasource creates a new datasource instance with its own token manager.
+// NewDatasource creates a new datasource instance.
 func NewDatasource() *Datasource {
 	return &Datasource{
-		tm: newTokenManager(),
+		tm:          newTokenManager(),
+		translators: make(map[string]*SiteTranslator),
 	}
 }
 
-// httpClientFor creates an HTTP client that respects the InsecureSkipVerify setting
-// for the given datasource instance. This is crucial for environments with
-// self-signed certificates.
+// getSiteTranslator returns a site translator for the given instance.
+// If one doesn't exist, it creates and caches it.
+func (d *Datasource) getSiteTranslator(inst *dsInstance, httpClient *http.Client) *SiteTranslator {
+	d.translatorMux.Lock()
+	defer d.translatorMux.Unlock()
+
+	if t, ok := d.translators[inst.UID]; ok {
+		return t
+	}
+	t := NewSiteTranslator(httpClient, inst, d.tm)
+	d.translators[inst.UID] = t
+	log.DefaultLogger.Info("Created new site translator for instance", "uid", inst.UID)
+	return t
+}
+
+// httpClientFor creates an HTTP client that respects the InsecureSkipVerify setting.
 func (d *Datasource) httpClientFor(s *InstanceSettings) *http.Client {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: s.InsecureSkipVerify}, //nolint:gosec
@@ -84,8 +101,16 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 	if err != nil {
 		return nil, err
 	}
-	settings := inst.Settings
-	httpClient := d.httpClientFor(settings)
+	httpClient := d.httpClientFor(inst.Settings)
+	siteTranslator := d.getSiteTranslator(inst, httpClient)
+
+	// Ensure the site cache is warm before processing queries. This prevents
+	// repeated cache checks inside the loop.
+	if err := siteTranslator.EnsureCache(ctx); err != nil {
+		// Log the error but don't fail the whole query; it might still succeed
+		// if the cache is partially available or if no site enrichment is needed.
+		log.DefaultLogger.Error("Failed to ensure site cache", "err", err)
+	}
 
 	for _, q := range req.Queries {
 		dr := backend.DataResponse{}
@@ -95,22 +120,33 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		if err := json.Unmarshal(q.JSON, &qm); err != nil {
 			dr.Error = fmt.Errorf("invalid query model: %w", err)
 			resp.Responses[q.RefID] = dr
+			log.DefaultLogger.Error("Failed to unmarshal query model", "err", err, "json", string(q.JSON))
 			continue
 		}
 		qm.TimeRange = q.TimeRange
+		log.DefaultLogger.Info("Executing query", "refId", q.RefID, "queryType", qm.QueryType, "limit", qm.Limit)
+		log.DefaultLogger.Debug("Full query model", "query", fmt.Sprintf("%+v", qm))
 
-		// If a site name is provided for an alerts query, resolve it to an ID first.
-		if strings.TrimSpace(qm.QueryType) != "siteHealth" && qm.SiteName != "" {
-			siteID, err := d.getSiteIDByName(ctx, httpClient, inst, qm.SiteName)
-			if err != nil {
-				dr.Error = fmt.Errorf("failed to resolve site name '%s': %w", qm.SiteName, err)
-				resp.Responses[q.RefID] = dr
-				continue
+		// If site IDs are not provided, but site names are, resolve them.
+		// This handles cases where the user might manually enter a site name.
+		if len(qm.SiteID) == 0 && len(qm.SiteName) > 0 {
+			log.DefaultLogger.Info("Resolving site names to IDs", "names", qm.SiteName)
+			var resolvedIDs []string
+			for _, name := range qm.SiteName {
+				siteID, err := siteTranslator.GetSiteID(ctx, name)
+				if err != nil {
+					// Log the error but continue, so one bad name doesn't fail the whole query.
+					log.DefaultLogger.Warn("failed to resolve site name", "name", name, "err", err)
+					continue
+				}
+				resolvedIDs = append(resolvedIDs, siteID)
 			}
-			qm.SiteID = siteID // Overwrite the SiteID field with the resolved ID.
+			qm.SiteID = resolvedIDs
+			log.DefaultLogger.Info("Resolved site IDs", "ids", resolvedIDs)
 		}
 
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
+			log.DefaultLogger.Info("Routing to siteHealth handler")
 			frame, err := d.querySiteHealth(ctx, inst, qm, q.RefID)
 			if err != nil {
 				dr.Error = err
@@ -121,147 +157,163 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			continue
 		}
 
-		issuesURL, err := IssuesURL(settings.BaseURL)
+		log.DefaultLogger.Info("Routing to assuranceIssues handler")
+		issuesURL, err := IssuesURL(inst.Settings.BaseURL)
 		if err != nil {
 			dr.Error = err
 			resp.Responses[q.RefID] = dr
 			continue
 		}
 
-		// 2. Set up pagination. We'll loop until we either hit the hard limit
-		//    or the API returns fewer results than the page size.
-		pageSize := 25
-		offset := 0
-		var hardLimit int64 = 25
+		// 2. Set up pagination.
+		pageSize := 50 // A reasonable page size
+		var hardLimit int64 = 1000 // A higher default hard limit
 		if qm.Limit != nil && *qm.Limit > 0 {
 			hardLimit = *qm.Limit
 		}
+		log.DefaultLogger.Info("Pagination configured", "pageSize", pageSize, "hardLimit", hardLimit)
 
 		type row struct {
-			TimeMs   int64
-			ID       string
-			Title    string
-			Severity string
-			Status   string
-			Category string
-			Device   string
-			MAC      string
-			Site     string
-			Rule     string
-			Details  string
+			TimeMs     int64
+			ID         string
+			Title      string
+			Severity   string
+			Status     string
+			Category   string
+			Device     string
+			MAC        string
+			Site       string
+			ParentSite string
+			Rule       string
+			Details    string
 		}
-		issueRows := make([]row, 0, 256)
-		allIssues := make([]map[string]any, 0, 256)
+		allIssues := make([]map[string]any, 0, min(int(hardLimit), 1000))
 
-		for int64(len(allIssues)) < hardLimit {
-			limitForThisPage := pageSize
-			remaining := int(hardLimit - int64(len(allIssues)))
-			if remaining < limitForThisPage {
-				limitForThisPage = remaining
-			}
+		// If no sites are selected, run one global query.
+		// If sites are selected, we will iterate and run a query for each site.
+		// This is because the API doesn't support OR logic for multiple site IDs with other filters.
+		siteIDsToQuery := qm.SiteID
+		if len(siteIDsToQuery) == 0 {
+			siteIDsToQuery = []string{""} // One empty ID to trigger a single global query
+			log.DefaultLogger.Info("No sites selected, performing a global query")
+		} else {
+			log.DefaultLogger.Info("Sites selected, querying each site individually", "siteIDs", siteIDsToQuery)
+		}
 
-			params := buildAssuranceParamsFromQuery(
-				qm,
-				q.TimeRange.From.UnixMilli(),
-				q.TimeRange.To.UnixMilli(),
-				limitForThisPage,
-				offset+1,
-			)
-
-			// 3. Get a valid token, either from cache or by fetching a new one.
-			token, err := d.tm.getToken(ctx, inst.UID, settings, httpClient)
-			if err != nil {
-				dr.Error = fmt.Errorf("token: %w", err)
-				break
-			}
-
-			reqURL := issuesURL + "?" + params.Encode()
-			httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-			httpReq.Header.Set("X-Auth-Token", token)
-
-			httpResp, err := httpClient.Do(httpReq)
-			if err != nil {
-				dr.Error = fmt.Errorf("issues request failed: %w", err)
-				break
-			}
-			body, _ := io.ReadAll(httpResp.Body)
-			httpResp.Body.Close()
-
-			// If the token has expired, the API will return 401 or 403.
-			// In this case, we force a token refresh and retry the request once.
-			if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
-				log.DefaultLogger.Warn("Unauthorized; refreshing token and retrying")
-				d.tm.set(inst.UID, "") // Force refresh by clearing the cached token.
-				token, err = d.tm.getToken(ctx, inst.UID, settings, httpClient)
-				if err != nil {
-					dr.Error = fmt.Errorf("token refresh: %w", err)
-					break
-				}
-				httpReq, _ = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-				httpReq.Header.Set("X-Auth-Token", token)
-				httpResp, err = httpClient.Do(httpReq)
-				if err != nil {
-					dr.Error = fmt.Errorf("issues request retry failed: %w", err)
-					break
-				}
-				body, _ = io.ReadAll(httpResp.Body)
-				httpResp.Body.Close()
-			}
-
-			if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-				dr.Error = fmt.Errorf("issues endpoint returned %s: %s", httpResp.Status, string(body))
-				break
-			}
-
-			var env IssuesEnvelope
-			var arr []map[string]any
-			if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
-				arr = env.Response
+	siteQueryLoop:
+		for _, siteID := range siteIDsToQuery {
+			queryModelForSite := qm
+			if siteID != "" {
+				queryModelForSite.SiteID = []string{siteID} // Query for one site at a time
 			} else {
-				// Some API versions might return a raw array instead of an envelope.
-				_ = json.Unmarshal(body, &arr)
-			}
-			if len(arr) == 0 {
-				// No more results, exit the pagination loop.
-				break
+				queryModelForSite.SiteID = []string{} // Global query
 			}
 
-			allIssues = append(allIssues, arr...)
-			if len(arr) < pageSize {
-				// The API returned fewer items than we asked for, so this is the last page.
-				break
-			}
-			offset += pageSize
-		}
-
-		// 4. Site Name Enrichment: If the 'enrich' flag is set, resolve site IDs to names.
-		// This is done after collecting all issues to batch the site ID lookups into one API call.
-		siteIDToNameMap := make(map[string]string)
-		if qm.Enrich && len(allIssues) > 0 {
-			uniqueSiteIDs := make(map[string]struct{})
-			for _, issue := range allIssues {
-				if siteID, ok := issue["siteId"].(string); ok && siteID != "" {
-					uniqueSiteIDs[siteID] = struct{}{}
+			offsetForSite := 0
+			for { // This loop will now be explicitly broken out of
+				if int64(len(allIssues)) >= hardLimit {
+					log.DefaultLogger.Info("Hard limit reached, breaking all loops", "totalIssues", len(allIssues), "hardLimit", hardLimit)
+					break siteQueryLoop // Break outer loop if limit is reached
 				}
-			}
 
-			var siteIDs []string
-			for id := range uniqueSiteIDs {
-				siteIDs = append(siteIDs, id)
-			}
+				limitForThisPage := pageSize
+				remaining := int(hardLimit - int64(len(allIssues)))
+				if remaining < limitForThisPage {
+					limitForThisPage = remaining
+				}
 
-			if len(siteIDs) > 0 {
-				var err error
-				siteIDToNameMap, err = d.getSiteNamesByID(ctx, httpClient, inst, siteIDs)
+				params := buildAssuranceParamsFromQuery(
+					queryModelForSite,
+					q.TimeRange.From.UnixMilli(),
+					q.TimeRange.To.UnixMilli(),
+					limitForThisPage,
+					offsetForSite+1,
+				)
+
+				// 3. Get a valid token.
+				token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
 				if err != nil {
-					log.DefaultLogger.Warn("failed to resolve site names", "err", err)
+					dr.Error = fmt.Errorf("token: %w", err)
+					log.DefaultLogger.Error("Failed to get token", "err", err)
+					break siteQueryLoop
 				}
+
+				reqURL := issuesURL + "?" + params.Encode()
+				httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+				httpReq.Header.Set("X-Auth-Token", token)
+
+				log.DefaultLogger.Info("Requesting assurance issues", "url", reqURL)
+				httpResp, err := httpClient.Do(httpReq)
+				if err != nil {
+					dr.Error = fmt.Errorf("issues request failed: %w", err)
+					log.DefaultLogger.Error("HTTP request failed", "err", err)
+					break siteQueryLoop
+				}
+				body, _ := io.ReadAll(httpResp.Body)
+				httpResp.Body.Close()
+				log.DefaultLogger.Info("Received response", "status", httpResp.Status)
+				log.DefaultLogger.Debug("Response body", "body", string(body))
+
+				// Handle token refresh on 401/403.
+				if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
+					log.DefaultLogger.Warn("Unauthorized; refreshing token and retrying")
+					d.tm.set(inst.UID, "") // Force refresh.
+					token, err = d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+					if err != nil {
+						dr.Error = fmt.Errorf("token refresh: %w", err)
+						log.DefaultLogger.Error("Failed to get token on retry", "err", err)
+						break siteQueryLoop
+					}
+					httpReq, _ = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+					httpReq.Header.Set("X-Auth-Token", token)
+					httpResp, err = httpClient.Do(httpReq)
+					if err != nil {
+						dr.Error = fmt.Errorf("issues request retry failed: %w", err)
+						log.DefaultLogger.Error("HTTP request failed on retry", "err", err)
+						break siteQueryLoop
+					}
+					body, _ = io.ReadAll(httpResp.Body)
+					httpResp.Body.Close()
+					log.DefaultLogger.Info("Received response on retry", "status", httpResp.Status)
+					log.DefaultLogger.Debug("Response body on retry", "body", string(body))
+				}
+
+				if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+					dr.Error = fmt.Errorf("issues endpoint returned %s: %s", httpResp.Status, string(body))
+					log.DefaultLogger.Error("API returned non-2xx status", "status", httpResp.Status, "body", string(body))
+					break siteQueryLoop
+				}
+
+				var env IssuesEnvelope
+				var arr []map[string]any
+				if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
+					arr = env.Response
+				} else {
+					// If the envelope unmarshal fails, try unmarshalling directly into a slice.
+					_ = json.Unmarshal(body, &arr)
+				}
+				log.DefaultLogger.Info("Parsed issues from response", "count", len(arr))
+
+				if len(arr) == 0 {
+					log.DefaultLogger.Info("Received 0 issues, ending pagination for this site.", "siteId", siteID)
+					break // No more issues for this site, move to the next site.
+				}
+
+				allIssues = append(allIssues, arr...)
+				log.DefaultLogger.Info("Total issues collected so far", "count", len(allIssues))
+
+				if len(arr) < pageSize {
+					log.DefaultLogger.Info("Received fewer issues than page size, ending pagination for this site.", "siteId", siteID, "count", len(arr), "pageSize", pageSize)
+					break // Last page for this site, move to the next site.
+				}
+				offsetForSite += pageSize
 			}
 		}
 
-		// 5. Data Transformation: Convert the raw API response into a structured format
-		//    that can be used to build the Grafana data.Frame.
-		for _, it := range allIssues {
+		log.DefaultLogger.Info("Data fetching complete. Transforming data.", "totalIssues", len(allIssues))
+		// 4. Data Transformation and Enrichment.
+		issueRows := make([]row, 0, min(len(allIssues), int(hardLimit)))
+		for _, it := range allIssues[:min(len(allIssues), int(hardLimit))] {
 			getStr := func(k string) string {
 				if v, ok := it[k]; ok && v != nil {
 					if s, ok2 := v.(string); ok2 {
@@ -286,23 +338,39 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			}
 
 			siteIDValue := getStr("siteId")
-			siteNameValue := siteIDValue // Fallback to ID if enrichment is disabled or fails.
-			if name, ok := siteIDToNameMap[siteIDValue]; ok {
-				siteNameValue = name // Use resolved name if available.
+			siteNameValue := siteIDValue // Fallback to ID.
+			parentSiteNameValue := ""      // Default to empty string
+			var site Site
+			var parentSite Site
+			// Use the translator to get the site and its parent.
+			site, err = siteTranslator.GetSiteByID(ctx, siteIDValue)
+			if err == nil {
+				siteNameValue = site.Name
+				if site.ParentID != "" {
+					parentSite, err = siteTranslator.GetSiteByID(ctx, site.ParentID)
+					if err == nil {
+						parentSiteNameValue = parentSite.Name
+					} else {
+						log.DefaultLogger.Warn("failed to resolve parent site ID to name", "parentSiteId", site.ParentID, "err", err)
+					}
+				}
+			} else {
+				log.DefaultLogger.Warn("failed to resolve site ID to name", "siteId", siteIDValue, "err", err)
 			}
 
 			r := row{
-				TimeMs:   firstNonZero(getNum("timestamp"), getNum("firstOccurredTime"), getNum("startTime")),
-				ID:       firstNonEmpty(getStr("issueId"), getStr("id"), getStr("instanceId")),
-				Title:    firstNonEmpty(getStr("name"), getStr("title"), getStr("issueTitle")),
-				Severity: firstNonEmpty(getStr("priority"), getStr("severity")),
-				Status:   firstNonEmpty(getStr("issueStatus"), getStr("status")),
-				Category: firstNonEmpty(getStr("category"), getStr("type")),
-				Device:   firstNonEmpty(getStr("networkDeviceId"), getStr("deviceId"), getStr("deviceIp"), getStr("device")),
-				MAC:      firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
-				Site:     siteNameValue,
-				Rule:     getStr("ruleId"),
-				Details:  firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
+				TimeMs:     firstNonZero(getNum("timestamp"), getNum("firstOccurredTime"), getNum("startTime")),
+				ID:         firstNonEmpty(getStr("issueId"), getStr("id"), getStr("instanceId")),
+				Title:      firstNonEmpty(getStr("name"), getStr("title"), getStr("issueTitle")),
+				Severity:   firstNonEmpty(getStr("priority"), getStr("severity")),
+				Status:     firstNonEmpty(getStr("issueStatus"), getStr("status")),
+				Category:   firstNonEmpty(getStr("category"), getStr("type")),
+				Device:     firstNonEmpty(getStr("networkDeviceId"), getStr("deviceId"), getStr("deviceIp"), getStr("device")),
+				MAC:        firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
+				Site:       siteNameValue,
+				ParentSite: parentSiteNameValue,
+				Rule:       getStr("ruleId"),
+				Details:    firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
 			}
 			if r.TimeMs == 0 {
 				r.TimeMs = q.TimeRange.From.UnixMilli()
@@ -310,8 +378,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			issueRows = append(issueRows, r)
 		}
 
-		// 6. Build the Grafana data.Frame, which is the final structure that gets
-		//    sent back to the frontend for rendering.
+		// 5. Build the Grafana data.Frame.
 		frame := data.NewFrame(q.RefID)
 		fTime := data.NewField("Time", nil, make([]time.Time, 0, len(issueRows)))
 		fID := data.NewField("Issue ID", nil, make([]string, 0, len(issueRows)))
@@ -322,6 +389,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		fDevice := data.NewField("Device ID", nil, make([]string, 0, len(issueRows)))
 		fMAC := data.NewField("MAC", nil, make([]string, 0, len(issueRows)))
 		fSite := data.NewField("Site Name", nil, make([]string, 0, len(issueRows)))
+		fParentSite := data.NewField("Parent Site", nil, make([]string, 0, len(issueRows)))
 		fRule := data.NewField("Rule", nil, make([]string, 0, len(issueRows)))
 		fDetails := data.NewField("Details", nil, make([]string, 0, len(issueRows)))
 
@@ -335,12 +403,13 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			fDevice.Append(r.Device)
 			fMAC.Append(r.MAC)
 			fSite.Append(r.Site)
+			fParentSite.Append(r.ParentSite)
 			fRule.Append(r.Rule)
 			fDetails.Append(r.Details)
 		}
 
 		frame.Fields = append(frame.Fields,
-			fTime, fID, fTitle, fSeverity, fStatus, fCategory, fDevice, fMAC, fSite, fRule, fDetails,
+			fTime, fID, fTitle, fSeverity, fStatus, fCategory, fDevice, fMAC, fSite, fParentSite, fRule, fDetails,
 		)
 
 		if len(issueRows) == 0 {
@@ -353,240 +422,169 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				},
 			})
 		}
-
 		dr.Frames = append(dr.Frames, frame)
 		resp.Responses[q.RefID] = dr
 	}
-
 	return resp, nil
 }
 
-// getSiteNamesByID performs a batch lookup to resolve a list of site IDs to their
-// corresponding site names. This is more efficient than making one request per site.
-func (d *Datasource) getSiteNamesByID(ctx context.Context, httpClient *http.Client, inst *dsInstance, siteIDs []string) (map[string]string, error) {
-	siteURL, err := SiteURL(inst.Settings.BaseURL)
+// querySiteHealth handles the specific logic for the 'siteHealth' query type.
+func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel, refID string) (*data.Frame, error) {
+	httpClient := d.httpClientFor(inst.Settings)
+	siteHealthURL, err := url.Parse(inst.Settings.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("bad site baseUrl: %w", err)
+		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
+	prefix := dnacPrefix(siteHealthURL.Path)
+	siteHealthURL.Path = prefix + "/dna/intent/api/v1/site-health"
 
-	// The Catalyst Center API supports fetching multiple sites by providing a comma-separated list of IDs.
-	params := url.Values{}
-	params.Set("siteId", strings.Join(siteIDs, ","))
-	reqURL := siteURL + "?" + params.Encode()
+	var allSiteHealthData []map[string]any
+	pageSize := 50 // As per API doc, max is 50
+	offset := 0
 
-	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-	if err != nil {
-		return nil, fmt.Errorf("token for site lookup: %w", err)
-	}
+	for {
+		params := buildSiteHealthParamsFromQuery(qm, qm.TimeRange.To.UnixMilli(), pageSize, offset+1)
+		reqURL := siteHealthURL.String() + "?" + params.Encode()
 
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	httpReq.Header.Set("X-Auth-Token", token)
-	httpReq.Header.Set("Accept", "application/json")
+		token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("token: %w", err)
+		}
 
-	httpResp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("site request failed: %w", err)
-	}
-	defer httpResp.Body.Close()
+		httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		httpReq.Header.Set("X-Auth-Token", token)
 
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		httpResp, err := httpClient.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("site health request failed: %w", err)
+		}
+
 		body, _ := io.ReadAll(httpResp.Body)
-		return nil, fmt.Errorf("site endpoint returned %s: %s", httpResp.Status, string(body))
-	}
+		httpResp.Body.Close()
 
-	var envelope SiteEnvelope
-	if err := json.NewDecoder(httpResp.Body).Decode(&envelope); err != nil {
-		return nil, fmt.Errorf("failed to decode site response: %w", err)
-	}
-
-	nameMap := make(map[string]string)
-	for _, site := range envelope.Response {
-		if site.ID != "" && site.Name != "" {
-			nameMap[site.ID] = site.Name
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			return nil, fmt.Errorf("site health endpoint returned %s: %s", httpResp.Status, string(body))
 		}
-	}
-	return nameMap, nil
-}
 
-// getSiteIDByName resolves a site name to its ID.
-// Note: This is inefficient as it fetches all sites. A more optimal solution
-// would use an API that allows filtering by name if available.
-func (d *Datasource) getSiteIDByName(ctx context.Context, httpClient *http.Client, inst *dsInstance, siteName string) (string, error) {
-	siteURL, err := SiteURL(inst.Settings.BaseURL)
-	if err != nil {
-		return "", fmt.Errorf("bad site baseUrl: %w", err)
-	}
-
-	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-	if err != nil {
-		return "", fmt.Errorf("token for site lookup: %w", err)
-	}
-
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, siteURL, nil)
-	httpReq.Header.Set("X-Auth-Token", token)
-	httpReq.Header.Set("Accept", "application/json")
-
-	httpResp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("site request failed: %w", err)
-	}
-	defer httpResp.Body.Close()
-
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(httpResp.Body)
-		return "", fmt.Errorf("site endpoint returned %s: %s", httpResp.Status, string(body))
-	}
-
-	var envelope SiteEnvelope
-	if err := json.NewDecoder(httpResp.Body).Decode(&envelope); err != nil {
-		return "", fmt.Errorf("failed to decode site response: %w", err)
-	}
-
-	for _, site := range envelope.Response {
-		if site.Name == siteName {
-			return site.ID, nil
+		var envelope struct {
+			Response []map[string]any `json:"response"`
 		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal site health response: %w", err)
+		}
+
+		if len(envelope.Response) == 0 {
+			break // No more data
+		}
+
+		allSiteHealthData = append(allSiteHealthData, envelope.Response...)
+
+		if len(envelope.Response) < pageSize {
+			break // Last page
+		}
+		offset += pageSize
 	}
 
-	return "", fmt.Errorf("site with name '%s' not found", siteName)
-}
+	// If user selected specific sites, filter the results now.
+	if len(qm.SiteID) > 0 {
+		siteIDSet := make(map[string]struct{})
+		for _, id := range qm.SiteID {
+			siteIDSet[id] = struct{}{}
+		}
 
-// ---- CheckHealth ----
-
-// CheckHealth is called by Grafana to verify that the datasource is configured
-// correctly and can connect to the Catalyst Center API. It performs a lightweight
-// check by attempting to fetch a token and then making a simple API call.
-func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	inst, err := getInstanceFromPluginContext(req.PluginContext)
-	if err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "instance error: " + err.Error(),
-		}, nil
-	}
-	settings := inst.Settings
-	httpClient := d.httpClientFor(settings)
-
-	// 1. Verify that we can obtain an authentication token.
-	if _, err := d.tm.getToken(ctx, inst.UID, settings, httpClient); err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "token: " + err.Error(),
-		}, nil
+		var filteredData []map[string]any
+		for _, siteData := range allSiteHealthData {
+			if id, ok := siteData["siteId"].(string); ok {
+				if _, exists := siteIDSet[id]; exists {
+					filteredData = append(filteredData, siteData)
+				}
+			}
+		}
+		allSiteHealthData = filteredData
 	}
 
-	issuesURL, err := IssuesURL(settings.BaseURL)
-	if err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "invalid base URL",
-		}, nil
-	}
-
-	// 2. Make a lightweight test query to the issues endpoint.
-	u := issuesURL + "?limit=1"
-	reqHTTP, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	tok, _ := d.tm.getToken(ctx, inst.UID, settings, httpClient)
-	reqHTTP.Header.Set("X-Auth-Token", tok)
-
-	httpResp, err := httpClient.Do(reqHTTP)
-	if err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "issues probe failed: " + err.Error(),
-		}, nil
-	}
-	defer httpResp.Body.Close()
-
-	if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusOk,
-			Message: "Successfully connected to Catalyst Center (issues)",
-		}, nil
-	}
-	b, _ := io.ReadAll(httpResp.Body)
-	return &backend.CheckHealthResult{
-		Status:  backend.HealthStatusError,
-		Message: fmt.Sprintf("issues probe %s: %s", httpResp.Status, string(b)),
-	}, nil
-}
-
-// ---- CallResource passthrough (honors TLS flag as well) ----
-
-// CallResource handles custom API requests from the frontend, typically used for
-// things like fetching values for template variables. This acts as a secure
-// proxy to the Catalyst Center API.
-func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	inst, err := getInstanceFromPluginContext(req.PluginContext)
-	if err != nil {
-		return sender.Send(&backend.CallResourceResponse{
-			Status: http.StatusInternalServerError,
-			Body:   []byte("instance error: " + err.Error()),
+	// Create the data frame from the (potentially filtered) data.
+	if len(allSiteHealthData) == 0 {
+		frame := data.NewFrame(refID)
+		frame.SetMeta(&data.FrameMeta{
+			Notices: []data.Notice{{Severity: data.NoticeSeverityInfo, Text: "No site health data found for the selected filters."}},
 		})
-	}
-	settings := inst.Settings
-	httpClient := d.httpClientFor(settings)
-
-	switch req.Path {
-	case "issues":
-		// The 'issues' resource path is used by the frontend to populate template variables.
-		return d.resourceIssues(ctx, inst, req, sender, httpClient)
-	default:
-		return sender.Send(&backend.CallResourceResponse{
-			Status: http.StatusNotFound,
-			Body:   []byte("not found"),
-		})
-	}
-}
-
-// resourceIssues handles requests to the /issues resource path. It forwards the
-// query parameters from the frontend to the Catalyst Center issues API.
-func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, httpClient *http.Client) error {
-	issuesURL, err := IssuesURL(inst.Settings.BaseURL)
-	if err != nil {
-		return sender.Send(&backend.CallResourceResponse{Status: http.StatusBadRequest, Body: []byte("bad baseUrl")})
+		return frame, nil
 	}
 
-	var rawQuery string
-	if req.URL != "" {
-		if u, err := url.Parse(req.URL); err == nil {
-			rawQuery = u.RawQuery
+	// Dynamically create fields based on the first item and the user's metric selection
+	firstItem := allSiteHealthData[0]
+	selectedMetrics := make(map[string]struct{})
+	if len(qm.Metrics) > 0 {
+		for _, m := range qm.Metrics {
+			selectedMetrics[m] = struct{}{}
 		}
 	}
 
-	q := ""
-	if rawQuery != "" {
-		q = "?" + rawQuery
+	frame := data.NewFrame(refID)
+	// Always include site name and ID
+	frame.Fields = append(frame.Fields, data.NewField("siteName", nil, make([]string, 0, len(allSiteHealthData))))
+	frame.Fields = append(frame.Fields, data.NewField("siteId", nil, make([]string, 0, len(allSiteHealthData))))
+
+	// Add fields for selected metrics
+	for key := range firstItem {
+		if _, isSelected := selectedMetrics[key]; isSelected || len(selectedMetrics) == 0 {
+			// Determine field type
+			switch firstItem[key].(type) {
+			case string:
+				frame.Fields = append(frame.Fields, data.NewField(key, nil, make([]*string, 0, len(allSiteHealthData))))
+			case float64:
+				frame.Fields = append(frame.Fields, data.NewField(key, nil, make([]*float64, 0, len(allSiteHealthData))))
+			case bool:
+				frame.Fields = append(frame.Fields, data.NewField(key, nil, make([]*bool, 0, len(allSiteHealthData))))
+			default:
+				// Fallback to string for other types
+				frame.Fields = append(frame.Fields, data.NewField(key, nil, make([]*string, 0, len(allSiteHealthData))))
+			}
+		}
 	}
 
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, issuesURL+q, nil)
-	tok, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-	if err != nil {
-		return sender.Send(&backend.CallResourceResponse{Status: http.StatusUnauthorized, Body: []byte("token: " + err.Error())})
-	}
-	httpReq.Header.Set("X-Auth-Token", tok)
+	// Populate the frame
+	for _, item := range allSiteHealthData {
+		for i, field := range frame.Fields {
+			value, exists := item[field.Name]
+			if !exists {
+				// Append nil if the key doesn't exist for this item
+				field.Append(nil)
+				continue
+			}
 
-	httpResp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return sender.Send(&backend.CallResourceResponse{Status: http.StatusBadGateway, Body: []byte("request failed: " + err.Error())})
+			// Use type assertion to append the correct type
+			switch v := value.(type) {
+			case string:
+				if i < len(frame.Fields) && frame.Fields[i].Type() == data.FieldTypeNullableString {
+					frame.Fields[i].Append(&v)
+				}
+			case float64:
+				if i < len(frame.Fields) && frame.Fields[i].Type() == data.FieldTypeNullableFloat64 {
+					frame.Fields[i].Append(&v)
+				}
+			case bool:
+				if i < len(frame.Fields) && frame.Fields[i].Type() == data.FieldTypeNullableBool {
+					frame.Fields[i].Append(&v)
+				}
+			default:
+				// Fallback for other types
+				if i < len(frame.Fields) && frame.Fields[i].Type() == data.FieldTypeNullableString {
+					strVal := fmt.Sprintf("%v", v)
+					frame.Fields[i].Append(&strVal)
+				}
+			}
+		}
 	}
-	defer httpResp.Body.Close()
-	body, _ := io.ReadAll(httpResp.Body)
 
-	return sender.Send(&backend.CallResourceResponse{
-		Status:  httpResp.StatusCode,
-		Body:    body,
-		Headers: map[string][]string{"Content-Type": {"application/json"}},
-	})
+	return frame, nil
 }
-
-// ---- helpers ----
 
 // firstNonEmpty returns the first non-empty string from a list of arguments.
-// This is useful for coalescing values from multiple possible API fields.
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
+		if v != "" {
 			return v
 		}
 	}
@@ -594,7 +592,6 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // firstNonZero returns the first non-zero int64 from a list of arguments.
-// Useful for finding a valid timestamp from multiple potential fields.
 func firstNonZero(vals ...int64) int64 {
 	for _, v := range vals {
 		if v != 0 {
@@ -604,90 +601,91 @@ func firstNonZero(vals ...int64) int64 {
 	return 0
 }
 
-func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel, refID string) (*data.Frame, error) {
+// ---- CheckHealth ----
+
+// CheckHealth is called by Grafana to verify that the datasource is configured correctly.
+func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+	inst, err := getInstanceFromPluginContext(req.PluginContext)
+	if err != nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: "instance error: " + err.Error(),
+		}, nil
+	}
 	httpClient := d.httpClientFor(inst.Settings)
-	siteHealthURL, err := SiteHealthURL(inst.Settings.BaseURL)
+
+	// 1. Verify that we can obtain an authentication token.
+	if _, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient); err != nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: "token error: " + err.Error(),
+		}, nil
+	}
+
+	// 2. Perform a lightweight API call to the site translator to ensure connectivity.
+	siteTranslator := d.getSiteTranslator(inst, httpClient)
+	if _, err := siteTranslator.GetAllSites(ctx); err != nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: "Health check failed: could not fetch sites. " + err.Error(),
+		}, nil
+	}
+
+	return &backend.CheckHealthResult{
+		Status:  backend.HealthStatusOk,
+		Message: "Successfully connected to Catalyst Center and fetched sites.",
+	}, nil
+}
+
+// ---- CallResource ----
+
+// CallResource handles custom API requests from the frontend.
+func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	if req.Path == "sites" {
+		return d.handleSitesRequest(ctx, req, sender)
+	}
+	return sender.Send(&backend.CallResourceResponse{
+		Status: http.StatusNotFound,
+	})
+}
+
+// handleSitesRequest fetches all sites using the translator and returns them as JSON.
+func (d *Datasource) handleSitesRequest(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	inst, err := getInstanceFromPluginContext(req.PluginContext)
 	if err != nil {
-		return nil, err
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusInternalServerError,
+			Body:   []byte("failed to get instance settings: " + err.Error()),
+		})
 	}
+	httpClient := d.httpClientFor(inst.Settings)
+	siteTranslator := d.getSiteTranslator(inst, httpClient)
 
-	// Use the "To" time from the time range to get the latest data.
-	params := buildSiteHealthParamsFromQuery(qm, qm.TimeRange.To.UnixMilli())
-
-	token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+	sites, err := siteTranslator.GetAllSites(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("token: %w", err)
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusInternalServerError,
+			Body:   []byte("failed to fetch sites: " + err.Error()),
+		})
 	}
 
-	reqURL := siteHealthURL + "?" + params.Encode()
-	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	httpReq.Header.Set("X-Auth-Token", token)
-
-	httpResp, err := httpClient.Do(httpReq)
+	body, err := json.Marshal(sites)
 	if err != nil {
-		return nil, fmt.Errorf("site-health request failed: %w", err)
-	}
-	defer httpResp.Body.Close()
-
-	body, _ := io.ReadAll(httpResp.Body)
-	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		return nil, fmt.Errorf("site-health endpoint returned %s: %s", httpResp.Status, string(body))
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusInternalServerError,
+			Body:   []byte("failed to marshal sites to JSON: " + err.Error()),
+		})
 	}
 
-	var env struct {
-		Response []map[string]any `json:"response"`
+	return sender.Send(&backend.CallResourceResponse{
+		Status: http.StatusOK,
+		Body:   body,
+	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("site-health response: %w", err)
-	}
-
-	// metricNameMapping translates frontend metric names to backend API field names.
-	metricNameMapping := map[string]string{
-		"clientCount": "numberOfClients",
-		// Add other mappings here if needed
-	}
-
-	// Create the data frame
-	frame := data.NewFrame(refID)
-	frame.Fields = append(frame.Fields, data.NewField("siteName", nil, []string{}))
-
-	// Dynamically add fields based on selected metrics
-	metricFields := make(map[string]*data.Field)
-	for _, metric := range qm.Metrics {
-		field := data.NewField(metric, nil, make([]*int64, 0))
-		metricFields[metric] = field
-		frame.Fields = append(frame.Fields, field)
-	}
-
-	// Populate the frame
-	for _, siteData := range env.Response {
-		siteName := ""
-		if s, ok := siteData["siteName"].(string); ok {
-			siteName = s
-		}
-		frame.Fields[0].Append(siteName)
-
-		for metric, field := range metricFields {
-			apiMetricName, ok := metricNameMapping[metric]
-			if !ok {
-				apiMetricName = metric // fallback to the original name if no mapping is found
-			}
-			var value *int64
-			if val, ok := siteData[apiMetricName]; ok {
-				switch v := val.(type) {
-				case float64:
-					v64 := int64(v)
-					value = &v64
-				case int64:
-					value = &v
-				case json.Number:
-					n, _ := v.Int64()
-					value = &n
-				}
-			}
-			field.Append(value)
-		}
-	}
-
-	return frame, nil
+	return b
 }

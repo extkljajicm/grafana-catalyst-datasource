@@ -1,4 +1,4 @@
-module github.com/extkljajicm/grafana-catalyst-datasource
+module github.com/kljama/grafana-catalyst-datasource
 
 go 1.24.6
 

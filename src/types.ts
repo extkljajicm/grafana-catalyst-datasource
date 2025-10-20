@@ -4,7 +4,7 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
  * The only query type supported in this version of the plugin.
  * This corresponds to fetching issues/alerts from the Catalyst Center API.
  */
-export type QueryType = 'alerts' | 'siteHealth';
+export type QueryType = 'assuranceIssues' | 'siteHealth';
 
 // Define specific, strict types for query parameters to improve type safety.
 export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
@@ -13,50 +13,46 @@ export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
 /**
  * Represents the query structure that is sent from the frontend query editor
  * to the backend.
- *
- * NOTE:
- * - The Catalyst Center API uses `priority` (P1..P4) and `issueStatus` (ACTIVE/IGNORED/RESOLVED).
- * - The `severity` and `status` fields are included as optional aliases for backward
- *   compatibility or UI convenience. The backend is responsible for normalizing these
- *   to the correct API parameters.
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
-  endpoint?: 'alerts' | 'siteHealth' | 'issues';
   limit?: number;
   priority?: CatalystPriority[];
   status?: CatalystIssueStatus[];
   networkDeviceId?: string;
   macAddress?: string;
-  siteId?: string;
-  rule?: string;
+  siteId?: string[];
+  issueName?: string;
   enrich?: boolean;
   siteType?: string;
   parentSiteName?: string;
-  siteName?: string;
+  siteName?: string[];
   parentSiteId?: string;
   metrics?: string[];
+  aiDriven?: boolean;
+  isGlobal?: boolean;
 }
 
 /**
  * Defines the default values for a new query in the query editor.
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
-  queryType: 'alerts',
-  endpoint: 'issues',
+  queryType: 'assuranceIssues',
   limit: 100,
   priority: [],
   status: [],
   networkDeviceId: '',
   macAddress: '',
-  siteId: '',
-  rule: '',
+  siteId: [],
+  issueName: '',
   enrich: false,
   siteType: '',
   parentSiteName: '',
-  siteName: '',
+  siteName: [],
   parentSiteId: '',
   metrics: [],
+  aiDriven: false,
+  isGlobal: false,
 };
 
 export const metricOptions = [

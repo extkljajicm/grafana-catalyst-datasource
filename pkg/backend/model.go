@@ -107,14 +107,14 @@ func IssuesURL(base string) (string, error) {
 
 // SiteURL constructs the full URL for the site lookup endpoint,
 // preserving any reverse proxy prefix.
-// It always points to <prefix>/dna/intent/api/v1/site.
+// It always points to <prefix>/dna/intent/api/v2/site.
 func SiteURL(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
 		return "", err
 	}
 	prefix := dnacPrefix(u.Path)
-	u.Path = prefix + "/dna/intent/api/v1/site"
+	u.Path = prefix + "/dna/intent/api/v2/site"
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String(), nil
@@ -158,48 +158,32 @@ func (v *StringOrBool) UnmarshalJSON(b []byte) error {
 func (v StringOrBool) String() string { return string(v) }
 
 // QueryModel represents the query structure sent from the frontend.
-// It includes all the filters and options available in the query editor.
+// It is used by the backend to construct API requests.
 type QueryModel struct {
-	QueryType       string   `json:"queryType"`
-	Limit           *int64   `json:"limit,omitempty"`
+	TimeRange backend.TimeRange `json:"timeRange"`
+	QueryType string            `json:"queryType,omitempty"`
+	Limit     *int64            `json:"limit,omitempty"`
+	// Filters for assurance issues
 	Priority        []string `json:"priority,omitempty"`
 	Status          []string `json:"status,omitempty"`
 	NetworkDeviceID string   `json:"networkDeviceId,omitempty"`
 	MACAddress      string   `json:"macAddress,omitempty"`
-	SiteID          string   `json:"siteId,omitempty"`
-	Rule            string   `json:"rule,omitempty"`
-	Enrich          bool     `json:"enrich,omitempty"`
-	SiteType        string   `json:"siteType,omitempty"`
-	ParentSiteName  string   `json:"parentSiteName,omitempty"`
-	SiteName        string   `json:"siteName,omitempty"`
-	ParentSiteId    string   `json:"parentSiteId,omitempty"`
-	Metrics         []string `json:"metrics,omitempty"`
+	SiteID          []string `json:"siteId,omitempty"`
+	SiteName        []string `json:"siteName,omitempty"`
+	IssueName       string   `json:"issueName,omitempty"`
+	AIDriven        bool     `json:"aiDriven,omitempty"`
+	IsGlobal        bool     `json:"isGlobal,omitempty"`
 
-	// TimeRange is populated by the backend from the query context.
-	TimeRange backend.TimeRange `json:"-"`
+	// Filters for site-health
+	SiteType       string   `json:"siteType,omitempty"`
+	ParentSiteName string   `json:"parentSiteName,omitempty"`
+	ParentSiteID   string   `json:"parentSiteId,omitempty"`
+	Metrics        []string `json:"metrics,omitempty"`
 }
 
-// SiteHealthURL constructs the full URL for the site-health endpoint.
-func SiteHealthURL(base string) (string, error) {
-	u, err := url.Parse(base)
-	if err != nil {
-		return "", err
-	}
-	prefix := dnacPrefix(u.Path)
-	u.Path = prefix + "/dna/intent/api/v1/site-health"
-	u.RawQuery = ""
-	u.Fragment = ""
-	return u.String(), nil
-}
-
-// tokenEntry represents a cached authentication token and its expiry time.
-type tokenEntry struct {
-	Token     string
-	ExpiresAt int64 // Unix epoch seconds
-}
-
-// IssuesEnvelope is the expected structure of the main issues API response.
-// The actual issues are contained within the 'response' field.
+// IssuesEnvelope is used to unmarshal the 'response' array from the issues API.
+// The API response is sometimes wrapped in a `{"response": [...]}` object.
+// This envelope allows for consistent handling of the response data.
 type IssuesEnvelope struct {
 	Response []map[string]any `json:"response"`
 }
@@ -209,8 +193,9 @@ type SiteEnvelope struct {
 	Response []Site `json:"response"`
 }
 
-// Site holds the relevant fields from the site API.
+// Site represents a single site returned from the Catalyst Center API.
 type Site struct {
-	ID   string `json:"id"`
-	Name string `json:"siteName"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ParentID string `json:"parentId,omitempty"`
 }

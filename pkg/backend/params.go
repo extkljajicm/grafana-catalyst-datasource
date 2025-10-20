@@ -6,28 +6,30 @@
 package backend
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
 // buildSiteHealthParamsFromQuery converts a QueryModel into url.Values for the site-health endpoint.
-func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64) url.Values {
-	v := url.Values{}
-	if s := strings.TrimSpace(q.SiteType); s != "" {
-		v.Set("siteType", s)
+func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64, limit int, offset int) url.Values {
+	p := url.Values{}
+	p.Set("timestamp", fmt.Sprintf("%d", timestamp))
+
+	if q.SiteType != "" {
+		p.Set("siteType", q.SiteType)
 	}
-	if s := strings.TrimSpace(q.SiteID); s != "" {
-		v.Set("siteId", s)
-	}
-	if s := strings.TrimSpace(q.ParentSiteId); s != "" {
-		v.Set("parentSiteId", s)
-	}
-	// Add time range if present
-	if timestamp > 0 {
-		v.Set("timestamp", strconv.FormatInt(timestamp, 10))
-	}
-	return v
+
+	// The site-health endpoint does not support filtering by siteId or siteName directly in the query params.
+	// This filtering should be done on the client-side after fetching the data,
+	// or the query needs to be adapted if a different endpoint is more suitable.
+	// For now, we will not add siteId/siteName to the query.
+
+	p.Set("limit", strconv.Itoa(limit))
+	p.Set("offset", strconv.Itoa(offset))
+
+	return p
 }
 
 // Allowed value sets for validation and normalization.
@@ -39,26 +41,18 @@ var (
 )
 
 // normalizePriority returns a valid priority string (P1-P4) if the input
-// matches a known value. It checks both 'priority' and the legacy 'severity' fields.
-func normalizePriority(priority, severity string) (string, bool) {
+// matches a known value.
+func normalizePriority(priority string) (string, bool) {
 	p := strings.ToUpper(strings.TrimSpace(priority))
 	if _, ok := allowedPriority[p]; ok {
 		return p, true
-	}
-	s := strings.ToUpper(strings.TrimSpace(severity))
-	if _, ok := allowedPriority[s]; ok {
-		return s, true
 	}
 	return "", false
 }
 
 // normalizeIssueStatus returns a valid status string if the input matches a known
-// value. It checks both 'issueStatus' and the legacy 'status' fields.
-func normalizeIssueStatus(issueStatus, status string) (string, bool) {
-	is := strings.ToUpper(strings.TrimSpace(issueStatus))
-	if _, ok := allowedIssueStatus[is]; ok {
-		return is, true
-	}
+// value.
+func normalizeIssueStatus(status string) (string, bool) {
 	s := strings.ToUpper(strings.TrimSpace(status))
 	if _, ok := allowedIssueStatus[s]; ok {
 		return s, true
@@ -82,60 +76,55 @@ func clampLimit(n, def, min, max int) int {
 }
 
 // buildAssuranceParamsFromQuery converts a QueryModel from the frontend into a
-// url.Values map suitable for encoding as URL query parameters.
+// url.Values map for querying the assurance issues endpoint.
 func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageSize, offset int) url.Values {
-	v := url.Values{}
+	p := url.Values{}
+	p.Set("startTime", strconv.FormatInt(startTime, 10))
+	p.Set("endTime", strconv.FormatInt(endTime, 10))
 
-	// Paging (one-based offset agreed)
-	v.Set("limit", strconv.Itoa(clampLimit(pageSize, 100, 1, 1000)))
-	if offset < 1 {
-		offset = 1
+       if len(q.Priority) > 0 {
+	       for _, prio := range q.Priority {
+		       normPrio, ok := normalizePriority(prio)
+		       if ok {
+			       p.Add("priority", normPrio)
+		       }
+	       }
+       }
+       if len(q.Status) > 0 {
+	       for _, stat := range q.Status {
+		       normStatus, ok := normalizeIssueStatus(stat)
+		       if ok {
+			       p.Add("status", normStatus)
+		       }
+	       }
+       }
+	if q.NetworkDeviceID != "" {
+		p.Set("networkDeviceId", q.NetworkDeviceID)
 	}
-	v.Set("offset", strconv.Itoa(offset))
-
-	// Optional time range (ignored if zero)
-	if startTime > 0 {
-		v.Set("startTime", strconv.FormatInt(startTime, 10))
+	if q.MACAddress != "" {
+		p.Set("macAddress", q.MACAddress)
 	}
-	if endTime > 0 {
-		v.Set("endTime", strconv.FormatInt(endTime, 10))
+       // Send all site IDs as repeated keys, per API spec.
+       if len(q.SiteID) > 0 {
+	       for _, id := range q.SiteID {
+		       if id != "" {
+			       p.Add("siteId", id)
+		       }
+	       }
+       }
+	if q.IssueName != "" {
+		// The 'IssueName' from the UI corresponds to the 'name' of the issue in the API
+		p.Set("name", q.IssueName)
 	}
-
-	// Filters (skip empties)
-	if s := strings.TrimSpace(q.SiteID); s != "" {
-		v.Set("siteId", s)
+	if q.AIDriven {
+		p.Set("aiDriven", "true")
 	}
-	if s := strings.TrimSpace(q.NetworkDeviceID); s != "" {
-		v.Set("networkDeviceId", s)
-	}
-	if s := strings.TrimSpace(q.MACAddress); s != "" {
-		v.Set("macAddress", s)
-	}
-
-	// Handle Priority: The API supports multiple values as repeated query parameters.
-	if len(q.Priority) > 0 {
-		var validPriorities []string
-		for _, p := range q.Priority {
-			if norm, ok := normalizePriority(p, ""); ok {
-				validPriorities = append(validPriorities, norm)
-			}
-		}
-		if len(validPriorities) > 0 {
-			v["priority"] = validPriorities
-		}
-	}
-
-	if len(q.Status) > 0 {
-		var validStatuses []string
-		for _, s := range q.Status {
-			if st, ok := normalizeIssueStatus(s, ""); ok {
-				validStatuses = append(validStatuses, strings.ToLower(st))
-			}
-		}
-		if len(validStatuses) > 0 {
-			v["status"] = validStatuses
-		}
+	if q.IsGlobal {
+		p.Set("isGlobal", "true")
 	}
 
-	return v
+	p.Set("limit", strconv.Itoa(pageSize))
+	p.Set("offset", strconv.Itoa(offset))
+
+	return p
 }

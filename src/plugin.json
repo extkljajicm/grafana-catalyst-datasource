@@ -10,7 +10,7 @@
   "info": {
     "description": "Grafana datasource for Cisco Catalyst Center (DNAC) issues/alerts via the REST API.",
     "author": {
-      "name": "extkljajicm"
+      "name": "kljama"
     },
     "keywords": [
       "datasource",
