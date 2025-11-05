@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,11 +88,9 @@ func getInstanceFromPluginContext(pc backend.PluginContext) (*dsInstance, error)
 // QueryData is the primary method for handling data queries from Grafana panels.
 // It executes the following steps:
 //  1. Parses the query from the frontend.
-//  2. Paginates through the Catalyst Center API to fetch all relevant issues,
-//     respecting the user-defined limit.
-//  3. Handles token acquisition and automatic refresh on 401/403 errors.
-//  4. Optionally enriches the data by resolving site IDs to names if the `enrich` flag is set.
-//  5. Transforms the API response into a Grafana data.Frame.
+//  2. Uses the Client to fetch all relevant issues from the API (Client handles pagination and retries).
+//  3. Enriches the data by resolving site IDs to names using the SiteTranslator.
+//  4. Transforms the API response into a Grafana data.Frame.
 func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	resp := backend.NewQueryDataResponse()
 
@@ -147,7 +144,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 
 		if strings.TrimSpace(qm.QueryType) == "siteHealth" {
 			log.DefaultLogger.Info("Routing to siteHealth handler")
-			frame, err := d.querySiteHealth(ctx, inst, qm, q.RefID)
+			frame, err := d.querySiteHealth(ctx, inst, qm, q.RefID, httpClient)
 			if err != nil {
 				dr.Error = err
 			} else {
@@ -165,14 +162,23 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			continue
 		}
 
-		// 2. Set up pagination.
-		pageSize := 50 // A reasonable page size
+		// 2. Determine the hard limit for this query.
 		var hardLimit int64 = 1000 // A higher default hard limit
 		if qm.Limit != nil && *qm.Limit > 0 {
 			hardLimit = *qm.Limit
 		}
-		log.DefaultLogger.Info("Pagination configured", "pageSize", pageSize, "hardLimit", hardLimit)
+		log.DefaultLogger.Info("Pagination configured", "hardLimit", hardLimit)
 
+		// 3. Use the Client to fetch all issues (Client handles pagination and retries).
+		client := NewClient(httpClient, d.tm, inst)
+		allIssues, err := client.FetchAllIssues(ctx, issuesURL, qm, hardLimit)
+		if err != nil {
+			dr.Error = err
+			resp.Responses[q.RefID] = dr
+			continue
+		}
+
+		// 4. Data Transformation and Enrichment.
 		type row struct {
 			TimeMs     int64
 			ID         string
@@ -187,131 +193,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 			Rule       string
 			Details    string
 		}
-		allIssues := make([]map[string]any, 0, min(int(hardLimit), 1000))
 
-		// If no sites are selected, run one global query.
-		// If sites are selected, we will iterate and run a query for each site.
-		// This is because the API doesn't support OR logic for multiple site IDs with other filters.
-		siteIDsToQuery := qm.SiteID
-		if len(siteIDsToQuery) == 0 {
-			siteIDsToQuery = []string{""} // One empty ID to trigger a single global query
-			log.DefaultLogger.Info("No sites selected, performing a global query")
-		} else {
-			log.DefaultLogger.Info("Sites selected, querying each site individually", "siteIDs", siteIDsToQuery)
-		}
-
-	siteQueryLoop:
-		for _, siteID := range siteIDsToQuery {
-			queryModelForSite := qm
-			if siteID != "" {
-				queryModelForSite.SiteID = []string{siteID} // Query for one site at a time
-			} else {
-				queryModelForSite.SiteID = []string{} // Global query
-			}
-
-			offsetForSite := 0
-			for { // This loop will now be explicitly broken out of
-				if int64(len(allIssues)) >= hardLimit {
-					log.DefaultLogger.Info("Hard limit reached, breaking all loops", "totalIssues", len(allIssues), "hardLimit", hardLimit)
-					break siteQueryLoop // Break outer loop if limit is reached
-				}
-
-				limitForThisPage := pageSize
-				remaining := int(hardLimit - int64(len(allIssues)))
-				if remaining < limitForThisPage {
-					limitForThisPage = remaining
-				}
-
-				params := buildAssuranceParamsFromQuery(
-					queryModelForSite,
-					q.TimeRange.From.UnixMilli(),
-					q.TimeRange.To.UnixMilli(),
-					limitForThisPage,
-					offsetForSite+1,
-				)
-
-				// 3. Get a valid token.
-				token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-				if err != nil {
-					dr.Error = fmt.Errorf("token: %w", err)
-					log.DefaultLogger.Error("Failed to get token", "err", err)
-					break siteQueryLoop
-				}
-
-				reqURL := issuesURL + "?" + params.Encode()
-				httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-				httpReq.Header.Set("X-Auth-Token", token)
-
-				log.DefaultLogger.Info("Requesting assurance issues", "url", reqURL)
-				httpResp, err := httpClient.Do(httpReq)
-				if err != nil {
-					dr.Error = fmt.Errorf("issues request failed: %w", err)
-					log.DefaultLogger.Error("HTTP request failed", "err", err)
-					break siteQueryLoop
-				}
-				body, _ := io.ReadAll(httpResp.Body)
-				httpResp.Body.Close()
-				log.DefaultLogger.Info("Received response", "status", httpResp.Status)
-				log.DefaultLogger.Debug("Response body", "body", string(body))
-
-				// Handle token refresh on 401/403.
-				if httpResp.StatusCode == http.StatusUnauthorized || httpResp.StatusCode == http.StatusForbidden {
-					log.DefaultLogger.Warn("Unauthorized; refreshing token and retrying")
-					d.tm.set(inst.UID, "") // Force refresh.
-					token, err = d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-					if err != nil {
-						dr.Error = fmt.Errorf("token refresh: %w", err)
-						log.DefaultLogger.Error("Failed to get token on retry", "err", err)
-						break siteQueryLoop
-					}
-					httpReq, _ = http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-					httpReq.Header.Set("X-Auth-Token", token)
-					httpResp, err = httpClient.Do(httpReq)
-					if err != nil {
-						dr.Error = fmt.Errorf("issues request retry failed: %w", err)
-						log.DefaultLogger.Error("HTTP request failed on retry", "err", err)
-						break siteQueryLoop
-					}
-					body, _ = io.ReadAll(httpResp.Body)
-					httpResp.Body.Close()
-					log.DefaultLogger.Info("Received response on retry", "status", httpResp.Status)
-					log.DefaultLogger.Debug("Response body on retry", "body", string(body))
-				}
-
-				if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-					dr.Error = fmt.Errorf("issues endpoint returned %s: %s", httpResp.Status, string(body))
-					log.DefaultLogger.Error("API returned non-2xx status", "status", httpResp.Status, "body", string(body))
-					break siteQueryLoop
-				}
-
-				var env IssuesEnvelope
-				var arr []map[string]any
-				if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
-					arr = env.Response
-				} else {
-					// If the envelope unmarshal fails, try unmarshalling directly into a slice.
-					_ = json.Unmarshal(body, &arr)
-				}
-				log.DefaultLogger.Info("Parsed issues from response", "count", len(arr))
-
-				if len(arr) == 0 {
-					log.DefaultLogger.Info("Received 0 issues, ending pagination for this site.", "siteId", siteID)
-					break // No more issues for this site, move to the next site.
-				}
-
-				allIssues = append(allIssues, arr...)
-				log.DefaultLogger.Info("Total issues collected so far", "count", len(allIssues))
-
-				if len(arr) < pageSize {
-					log.DefaultLogger.Info("Received fewer issues than page size, ending pagination for this site.", "siteId", siteID, "count", len(arr), "pageSize", pageSize)
-					break // Last page for this site, move to the next site.
-				}
-				offsetForSite += pageSize
-			}
-		}
-
-		log.DefaultLogger.Info("Data fetching complete. Transforming data.", "totalIssues", len(allIssues))
-		// 4. Data Transformation and Enrichment.
 		issueRows := make([]row, 0, min(len(allIssues), int(hardLimit)))
 		for _, it := range allIssues[:min(len(allIssues), int(hardLimit))] {
 			getStr := func(k string) string {
@@ -429,8 +311,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 }
 
 // querySiteHealth handles the specific logic for the 'siteHealth' query type.
-func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel, refID string) (*data.Frame, error) {
-	httpClient := d.httpClientFor(inst.Settings)
+func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm QueryModel, refID string, httpClient *http.Client) (*data.Frame, error) {
 	siteHealthURL, err := url.Parse(inst.Settings.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
@@ -438,51 +319,11 @@ func (d *Datasource) querySiteHealth(ctx context.Context, inst *dsInstance, qm Q
 	prefix := dnacPrefix(siteHealthURL.Path)
 	siteHealthURL.Path = prefix + "/dna/intent/api/v1/site-health"
 
-	var allSiteHealthData []map[string]any
-	pageSize := 50 // As per API doc, max is 50
-	offset := 0
-
-	for {
-		params := buildSiteHealthParamsFromQuery(qm, qm.TimeRange.To.UnixMilli(), pageSize, offset+1)
-		reqURL := siteHealthURL.String() + "?" + params.Encode()
-
-		token, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
-		if err != nil {
-			return nil, fmt.Errorf("token: %w", err)
-		}
-
-		httpReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-		httpReq.Header.Set("X-Auth-Token", token)
-
-		httpResp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return nil, fmt.Errorf("site health request failed: %w", err)
-		}
-
-		body, _ := io.ReadAll(httpResp.Body)
-		httpResp.Body.Close()
-
-		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-			return nil, fmt.Errorf("site health endpoint returned %s: %s", httpResp.Status, string(body))
-		}
-
-		var envelope struct {
-			Response []map[string]any `json:"response"`
-		}
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal site health response: %w", err)
-		}
-
-		if len(envelope.Response) == 0 {
-			break // No more data
-		}
-
-		allSiteHealthData = append(allSiteHealthData, envelope.Response...)
-
-		if len(envelope.Response) < pageSize {
-			break // Last page
-		}
-		offset += pageSize
+	// Use the Client to fetch all site health data
+	client := NewClient(httpClient, d.tm, inst)
+	allSiteHealthData, err := client.FetchAllSiteHealth(ctx, siteHealthURL, qm)
+	if err != nil {
+		return nil, err
 	}
 
 	// If user selected specific sites, filter the results now.
@@ -683,6 +524,7 @@ func (d *Datasource) handleSitesRequest(ctx context.Context, req *backend.CallRe
 	})
 }
 
+// min returns the minimum of two integers.
 func min(a, b int) int {
 	if a < b {
 		return a
