@@ -26,7 +26,14 @@ func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64, limit int, of
 	// or the query needs to be adapted if a different endpoint is more suitable.
 	// For now, we will not add siteId/siteName to the query.
 
-	p.Set("limit", strconv.Itoa(limit))
+	// Clamp limit to sane values: default 50, min 1, max 50 (API max)
+	clampedLimit := clampLimit(limit, 50, 1, 50)
+	p.Set("limit", strconv.Itoa(clampedLimit))
+	
+	// Ensure offset is at least 1 (API uses 1-based indexing)
+	if offset < 1 {
+		offset = 1
+	}
 	p.Set("offset", strconv.Itoa(offset))
 
 	return p
@@ -35,25 +42,27 @@ func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64, limit int, of
 // Allowed value sets for validation and normalization.
 var (
 	// allowedPriority defines the valid priority values for the API.
-	allowedPriority = map[string]struct{}{"P1": {}, "P2": {}, "P3": {}, "P4": {}}
+	// Priority values are case-insensitive (p1, P1) but normalized to lowercase for API.
+	allowedPriority = map[string]struct{}{"p1": {}, "p2": {}, "p3": {}, "p4": {}}
 	// allowedIssueStatus defines the valid status values for the API.
-	allowedIssueStatus = map[string]struct{}{"ACTIVE": {}, "RESOLVED": {}, "IGNORED": {}}
+	// Status values are case-insensitive (ACTIVE, active) but normalized to lowercase for API.
+	allowedIssueStatus = map[string]struct{}{"active": {}, "resolved": {}, "ignored": {}}
 )
 
-// normalizePriority returns a valid priority string (P1-P4) if the input
-// matches a known value.
+// normalizePriority returns a valid priority string (p1-p4) in lowercase if the input
+// matches a known value. Accepts case-insensitive input (e.g., P1, p1, P2).
 func normalizePriority(priority string) (string, bool) {
-	p := strings.ToUpper(strings.TrimSpace(priority))
+	p := strings.ToLower(strings.TrimSpace(priority))
 	if _, ok := allowedPriority[p]; ok {
 		return p, true
 	}
 	return "", false
 }
 
-// normalizeIssueStatus returns a valid status string if the input matches a known
-// value.
+// normalizeIssueStatus returns a valid status string in lowercase if the input matches a known
+// value. Accepts case-insensitive input (e.g., ACTIVE, active, Active).
 func normalizeIssueStatus(status string) (string, bool) {
-	s := strings.ToUpper(strings.TrimSpace(status))
+	s := strings.ToLower(strings.TrimSpace(status))
 	if _, ok := allowedIssueStatus[s]; ok {
 		return s, true
 	}
@@ -79,8 +88,14 @@ func clampLimit(n, def, min, max int) int {
 // url.Values map for querying the assurance issues endpoint.
 func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageSize, offset int) url.Values {
 	p := url.Values{}
-	p.Set("startTime", strconv.FormatInt(startTime, 10))
-	p.Set("endTime", strconv.FormatInt(endTime, 10))
+	
+	// Only set time parameters if they are non-zero
+	if startTime > 0 {
+		p.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if endTime > 0 {
+		p.Set("endTime", strconv.FormatInt(endTime, 10))
+	}
 
        if len(q.Priority) > 0 {
 	       for _, prio := range q.Priority {
@@ -123,7 +138,14 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 		p.Set("isGlobal", "true")
 	}
 
-	p.Set("limit", strconv.Itoa(pageSize))
+	// Clamp limit to sane values: default 100, min 1, max 500
+	clampedLimit := clampLimit(pageSize, 100, 1, 500)
+	p.Set("limit", strconv.Itoa(clampedLimit))
+	
+	// Ensure offset is at least 1 (API uses 1-based indexing)
+	if offset < 1 {
+		offset = 1
+	}
 	p.Set("offset", strconv.Itoa(offset))
 
 	return p
