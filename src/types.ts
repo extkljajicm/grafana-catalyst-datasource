@@ -7,8 +7,8 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
 export type QueryType = 'assuranceIssues' | 'siteHealth';
 
 // Define specific, strict types for query parameters to improve type safety.
-export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
-export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
+export type CatalystPriority = 'p1' | 'p2' | 'p3' | 'p4';
+export type CatalystIssueStatus = 'active' | 'resolved' | 'ignored';
 
 /**
  * Represents the query structure that is sent from the frontend query editor
@@ -23,6 +23,7 @@ export interface CatalystQuery extends DataQuery {
   macAddress?: string;
   siteId?: string[];
   issueName?: string;
+  // Reserved for future performance-intensive lookups (e.g., full device details)
   enrich?: boolean;
   siteType?: string;
   parentSiteName?: string;

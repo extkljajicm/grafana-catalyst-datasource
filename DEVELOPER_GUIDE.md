@@ -95,7 +95,7 @@ The plugin follows a **backend-driven architecture** where:
 
 ```bash
 # Clone the repository
-git clone https://github.com/extkljajicm/grafana-catalyst-datasource.git
+git clone https://github.com/kljama/grafana-catalyst-datasource.git
 cd grafana-catalyst-datasource
 
 # Install dependencies
@@ -377,4 +377,4 @@ docker compose logs -f grafana
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama

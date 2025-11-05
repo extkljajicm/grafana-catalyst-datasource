@@ -363,4 +363,4 @@ Based on the enhancement plan (`enhance_grafana_datasource.md`), potential futur
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama

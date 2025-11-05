@@ -326,7 +326,7 @@ Include:
 
 ### Community Resources
 
-- GitHub Issues: https://github.com/extkljajicm/grafana-catalyst-datasource/issues
+- GitHub Issues: https://github.com/kljama/grafana-catalyst-datasource/issues
 - Plugin Documentation: [README.md](src/README.md)
 - Grafana Community: https://community.grafana.com
 
@@ -350,4 +350,4 @@ Include:
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama

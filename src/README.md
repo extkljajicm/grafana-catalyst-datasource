@@ -130,4 +130,4 @@ npm run build
 
 ## License
 
-Apache-2.0 © extkljajicm
+Apache-2.0 © kljama
