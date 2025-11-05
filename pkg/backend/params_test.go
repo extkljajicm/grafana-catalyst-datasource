@@ -8,47 +8,47 @@ import (
 func TestNormalizePriority(t *testing.T) {
 	tests := []struct {
 		priority string
+		severity string
 		want     string
 		ok       bool
 	}{
-		{"P1", "p1", true},
-		{"p2", "p2", true},
-		{"P3", "p3", true},
-		{"p4", "p4", true},
-		{"", "", false},
-		{"weird", "", false},
-		{"P5", "", false},  // Invalid priority
-		{"  p1  ", "p1", true},  // Test trimming
+		{"P1", "", "p1", true},
+		{"p2", "", "p2", true},
+		{"", "P3", "p3", true},
+		{"", "p4", "p4", true},
+		{"", "", "", false},
+		{"weird", "nope", "", false},
+		{"P1", "P2", "p1", true},  // Primary field (priority) wins
+		{"  p1  ", "", "p1", true},  // Test trimming
 	}
 	for _, tt := range tests {
-		got, ok := normalizePriority(tt.priority)
+		got, ok := normalizePriority(tt.priority, tt.severity)
 		if got != tt.want || ok != tt.ok {
-			t.Fatalf("normalizePriority(%q) = (%q,%v), want (%q,%v)", tt.priority, got, ok, tt.want, tt.ok)
+			t.Fatalf("normalizePriority(%q,%q) = (%q,%v), want (%q,%v)", tt.priority, tt.severity, got, ok, tt.want, tt.ok)
 		}
 	}
 }
 
 func TestNormalizeIssueStatus(t *testing.T) {
 	tests := []struct {
-		status string
-		want   string
-		ok     bool
+		issueStatus string
+		status      string
+		want        string
+		ok          bool
 	}{
-		{"ACTIVE", "active", true},
-		{"resolved", "resolved", true},
-		{"ignored", "ignored", true},
-		{"active", "active", true},
-		{"RESOLVED", "resolved", true},
-		{"IGNORED", "ignored", true},
-		{"", "", false},
-		{"bad", "", false},
-		{"  active  ", "active", true},  // Test trimming
-		{"Invalid", "", false},
+		{"ACTIVE", "", "active", true},
+		{"resolved", "", "resolved", true},
+		{"", "ignored", "ignored", true},
+		{"", "active", "active", true},
+		{"", "", "", false},
+		{"bad", "also_bad", "", false},
+		{"ACTIVE", "RESOLVED", "active", true}, // Primary field (issueStatus) wins
+		{"  resolved  ", "", "resolved", true},  // Test trimming
 	}
 	for _, tt := range tests {
-		got, ok := normalizeIssueStatus(tt.status)
+		got, ok := normalizeIssueStatus(tt.issueStatus, tt.status)
 		if got != tt.want || ok != tt.ok {
-			t.Errorf("normalizeIssueStatus(%q) = (%q, %v), want (%q, %v)", tt.status, got, ok, tt.want, tt.ok)
+			t.Errorf("normalizeIssueStatus(%q, %q) = (%q, %v), want (%q, %v)", tt.issueStatus, tt.status, got, ok, tt.want, tt.ok)
 		}
 	}
 }

@@ -51,8 +51,15 @@ var (
 
 // normalizePriority returns a valid priority string (p1-p4) in lowercase if the input
 // matches a known value. Accepts case-insensitive input (e.g., P1, p1, P2).
-func normalizePriority(priority string) (string, bool) {
-	p := strings.ToLower(strings.TrimSpace(priority))
+// Supports legacy field alias: if priority is empty, falls back to severity.
+func normalizePriority(priority string, severity string) (string, bool) {
+	// Use priority if provided, otherwise fall back to severity (legacy field)
+	value := priority
+	if value == "" {
+		value = severity
+	}
+	
+	p := strings.ToLower(strings.TrimSpace(value))
 	if _, ok := allowedPriority[p]; ok {
 		return p, true
 	}
@@ -61,8 +68,15 @@ func normalizePriority(priority string) (string, bool) {
 
 // normalizeIssueStatus returns a valid status string in lowercase if the input matches a known
 // value. Accepts case-insensitive input (e.g., ACTIVE, active, Active).
-func normalizeIssueStatus(status string) (string, bool) {
-	s := strings.ToLower(strings.TrimSpace(status))
+// Supports legacy field alias: if issueStatus is empty, falls back to status.
+func normalizeIssueStatus(issueStatus string, status string) (string, bool) {
+	// Use issueStatus if provided, otherwise fall back to status (legacy field)
+	value := issueStatus
+	if value == "" {
+		value = status
+	}
+	
+	s := strings.ToLower(strings.TrimSpace(value))
 	if _, ok := allowedIssueStatus[s]; ok {
 		return s, true
 	}
@@ -99,7 +113,7 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
 
        if len(q.Priority) > 0 {
 	       for _, prio := range q.Priority {
-		       normPrio, ok := normalizePriority(prio)
+		       normPrio, ok := normalizePriority(prio, "")
 		       if ok {
 			       p.Add("priority", normPrio)
 		       }
@@ -107,7 +121,7 @@ func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageS
        }
        if len(q.Status) > 0 {
 	       for _, stat := range q.Status {
-		       normStatus, ok := normalizeIssueStatus(stat)
+		       normStatus, ok := normalizeIssueStatus(stat, "")
 		       if ok {
 			       p.Add("status", normStatus)
 		       }
