@@ -23,6 +23,7 @@ export interface CatalystQuery extends DataQuery {
   macAddress?: string;
   siteId?: string[];
   issueName?: string;
+  // Reserved for future performance-intensive lookups (e.g., full device details)
   enrich?: boolean;
   siteType?: string;
   parentSiteName?: string;
