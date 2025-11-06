@@ -35,7 +35,7 @@ When working on the backend, adhere to these critical patterns:
 - Parameter building is centralized in `params.go`
 - **ALWAYS use the `buildAssuranceParamsFromQuery()` helper** to construct API request parameters
 - This function correctly handles:
-  - **Case Sensitivity:** Converts status values to lowercase (active, resolved)
+  - **Case Sensitivity:** Converts priority and status values to lowercase (e.g., P1→p1, ACTIVE→active)
   - **Pagination:** Uses a one-based offset
   - **Normalization:** Handles legacy field aliases (e.g., `severity` → `priority`)
 
