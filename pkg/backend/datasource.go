@@ -169,7 +169,14 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		}
 		log.DefaultLogger.Info("Pagination configured", "hardLimit", hardLimit)
 
+		// Log warning if many sites are selected (may impact performance)
+		if len(qm.SiteID) > 5 {
+			log.DefaultLogger.Warn("Large number of sites selected may increase query time", "count", len(qm.SiteID))
+		}
+
 		// 3. Use the Client to fetch all issues (Client handles pagination and retries).
+		// Note: qm.Enrich field is reserved for future use (e.g., full device details).
+		// Site name enrichment always runs as it is efficient (see lines 228-241 in transformer.go).
 		client := NewClient(httpClient, d.tm, inst)
 		allIssues, err := client.FetchAllIssues(ctx, issuesURL, qm, hardLimit)
 		if err != nil {
