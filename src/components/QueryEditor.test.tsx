@@ -1,6 +1,6 @@
 // QueryEditor.test.tsx: Unit tests for QueryEditor component
 import React from 'react';
-import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import QueryEditor from './QueryEditor';
 import { DataSource } from '../datasource';
@@ -606,7 +606,7 @@ describe('QueryEditor', () => {
         },
       };
       
-      const { rerender } = render(<QueryEditor {...props} />);
+  render(<QueryEditor {...props} />);
       
       // Wait for component to settle with initial value
       await act(async () => {

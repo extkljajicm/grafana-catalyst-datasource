@@ -19,7 +19,7 @@ import {
   type CatalystJsonData,
   type CatalystVariableQuery,
 } from './types';
-import { parseError, formatErrorMessage } from './errors';
+import { parseError } from './errors';
 import { logger } from './logger';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
@@ -56,13 +56,20 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
   // template variables into a query before sending it to the backend.
   applyTemplateVariables(query: CatalystQuery, scopedVars: ScopedVars): CatalystQuery {
     const templateSrv = getTemplateSrv();
+    const replaceValue = (val: string | string[] | undefined) => {
+      if (Array.isArray(val)) {
+        return val.map((v) => templateSrv.replace(v, scopedVars));
+      }
+      return templateSrv.replace(val as string | undefined, scopedVars);
+    };
+
     return {
       ...query,
-      siteId: templateSrv.replace(query.siteId, scopedVars),
+      siteId: replaceValue(query.siteId) as any,
       networkDeviceId: templateSrv.replace(query.networkDeviceId, scopedVars),
       macAddress: templateSrv.replace(query.macAddress, scopedVars),
       parentSiteName: templateSrv.replace(query.parentSiteName, scopedVars),
-      siteName: templateSrv.replace(query.siteName, scopedVars),
+      siteName: replaceValue(query.siteName) as any,
     };
   }
 

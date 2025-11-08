@@ -1,6 +1,6 @@
 // datasource.test.ts: Unit tests for DataSource class
 import { DataSource } from './datasource';
-import { DataSourceInstanceSettings, CoreApp, MetricFindValue } from '@grafana/data';
+import { DataSourceInstanceSettings, CoreApp } from '@grafana/data';
 import { CatalystJsonData, CatalystQuery } from './types';
 import { getTemplateSrv } from '@grafana/runtime';
 
@@ -26,6 +26,7 @@ describe('DataSource', () => {
         baseUrl: 'https://catalyst.example.com',
         endpoint: 'alerts',
       },
+      access: 'proxy',
       readOnly: false,
     };
 
@@ -93,17 +94,17 @@ describe('DataSource', () => {
       const query: CatalystQuery = {
         refId: 'A',
         queryType: 'alerts',
-        siteId: '$site',
+        siteId: ['$site'],
         networkDeviceId: '$device',
         macAddress: '$mac',
       };
 
       const result = datasource.applyTemplateVariables(query, {});
       
-      expect(mockTemplateSrv.replace).toHaveBeenCalledWith('$site', {});
-      expect(mockTemplateSrv.replace).toHaveBeenCalledWith('$device', {});
-      expect(result.siteId).toBe('site-123');
-      expect(result.networkDeviceId).toBe('device-456');
+  expect(mockTemplateSrv.replace).toHaveBeenCalledWith('$site', {});
+  expect(mockTemplateSrv.replace).toHaveBeenCalledWith('$device', {});
+  expect(result.siteId).toEqual(['site-123']);
+  expect(result.networkDeviceId).toBe('device-456');
     });
 
     it('should handle undefined values', () => {

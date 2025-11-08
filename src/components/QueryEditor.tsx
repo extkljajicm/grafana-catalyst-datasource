@@ -26,17 +26,17 @@ function useDebounced<T>(value: T, delayMs: number): T {
 
 // Priority dropdown options
 const PRIORITY_OPTIONS: Array<SelectableValue<CatalystPriority>> = [
-  { label: 'P1', value: 'p1' },
-  { label: 'P2', value: 'p2' },
-  { label: 'P3', value: 'p3' },
-  { label: 'P4', value: 'p4' },
+  { label: 'P1', value: 'P1' },
+  { label: 'P2', value: 'P2' },
+  { label: 'P3', value: 'P3' },
+  { label: 'P4', value: 'P4' },
 ];
 
 // Issue status dropdown options
 const STATUS_OPTIONS: Array<SelectableValue<CatalystIssueStatus>> = [
-  { label: 'Active', value: 'active' },
-  { label: 'Resolved', value: 'resolved' },
-  { label: 'Ignored', value: 'ignored' },
+  { label: 'ACTIVE', value: 'ACTIVE' },
+  { label: 'RESOLVED', value: 'RESOLVED' },
+  { label: 'IGNORED', value: 'IGNORED' },
 ];
 
 const siteHealthMetricOptions: Array<SelectableValue<string>> = [

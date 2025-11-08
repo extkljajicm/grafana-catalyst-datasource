@@ -4,11 +4,13 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
  * The only query type supported in this version of the plugin.
  * This corresponds to fetching issues/alerts from the Catalyst Center API.
  */
-export type QueryType = 'assuranceIssues' | 'siteHealth';
+// Allow both legacy 'alerts' name and the API name 'assuranceIssues' for compatibility
+export type QueryType = 'alerts' | 'assuranceIssues' | 'siteHealth';
 
 // Define specific, strict types for query parameters to improve type safety.
-export type CatalystPriority = 'p1' | 'p2' | 'p3' | 'p4';
-export type CatalystIssueStatus = 'active' | 'resolved' | 'ignored';
+// Keep the canonical values uppercase as used across tests and UI (P1..P4)
+export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
+export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
 
 /**
  * Represents the query structure that is sent from the frontend query editor
@@ -16,6 +18,7 @@ export type CatalystIssueStatus = 'active' | 'resolved' | 'ignored';
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
+  endpoint?: 'alerts' | 'siteHealth' | 'issues';
   limit?: number;
   priority?: CatalystPriority[];
   status?: CatalystIssueStatus[];
