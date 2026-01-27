@@ -244,47 +244,24 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 		// 5. Data Transformation: Convert the raw API response into a structured format
 		//    that can be used to build the Grafana data.Frame.
 		for _, it := range allIssues {
-			getStr := func(k string) string {
-				if v, ok := it[k]; ok && v != nil {
-					if s, ok2 := v.(string); ok2 {
-						return s
-					}
-				}
-				return ""
-			}
-			getNum := func(k string) int64 {
-				if v, ok := it[k]; ok && v != nil {
-					switch x := v.(type) {
-					case float64:
-						return int64(x)
-					case int64:
-						return x
-					case json.Number:
-						n, _ := x.Int64()
-						return n
-					}
-				}
-				return 0
-			}
-
-			siteID := getStr("siteId")
+			siteID := getMapStr(it, "siteId")
 			siteName := siteID // Fallback to ID if enrichment is disabled or fails.
 			if name, ok := siteIDToNameMap[siteID]; ok {
 				siteName = name // Use resolved name if available.
 			}
 
 			r := row{
-				TimeMs:   firstNonZero(getNum("timestamp"), getNum("firstOccurredTime"), getNum("startTime")),
-				ID:       firstNonEmpty(getStr("issueId"), getStr("id"), getStr("instanceId")),
-				Title:    firstNonEmpty(getStr("name"), getStr("title"), getStr("issueTitle")),
-				Severity: firstNonEmpty(getStr("priority"), getStr("severity")),
-				Status:   firstNonEmpty(getStr("issueStatus"), getStr("status")),
-				Category: firstNonEmpty(getStr("category"), getStr("type")),
-				Device:   firstNonEmpty(getStr("deviceId"), getStr("deviceIp"), getStr("device")),
-				MAC:      firstNonEmpty(getStr("macAddress"), getStr("clientMac")),
+				TimeMs:   firstNonZero(getMapNum(it, "timestamp"), getMapNum(it, "firstOccurredTime"), getMapNum(it, "startTime")),
+				ID:       firstNonEmpty(getMapStr(it, "issueId"), getMapStr(it, "id"), getMapStr(it, "instanceId")),
+				Title:    firstNonEmpty(getMapStr(it, "name"), getMapStr(it, "title"), getMapStr(it, "issueTitle")),
+				Severity: firstNonEmpty(getMapStr(it, "priority"), getMapStr(it, "severity")),
+				Status:   firstNonEmpty(getMapStr(it, "issueStatus"), getMapStr(it, "status")),
+				Category: firstNonEmpty(getMapStr(it, "category"), getMapStr(it, "type")),
+				Device:   firstNonEmpty(getMapStr(it, "deviceId"), getMapStr(it, "deviceIp"), getMapStr(it, "device")),
+				MAC:      firstNonEmpty(getMapStr(it, "macAddress"), getMapStr(it, "clientMac")),
 				Site:     siteName,
-				Rule:     getStr("ruleId"),
-				Details:  firstNonEmpty(getStr("description"), getStr("details"), getStr("issueDescription")),
+				Rule:     getMapStr(it, "ruleId"),
+				Details:  firstNonEmpty(getMapStr(it, "description"), getMapStr(it, "details"), getMapStr(it, "issueDescription")),
 			}
 			if r.TimeMs == 0 {
 				r.TimeMs = q.TimeRange.From.UnixMilli()
@@ -538,6 +515,32 @@ func firstNonZero(vals ...int64) int64 {
 	for _, v := range vals {
 		if v != 0 {
 			return v
+		}
+	}
+	return 0
+}
+
+// getMapStr safely extracts a string from a map[string]any.
+func getMapStr(m map[string]any, k string) string {
+	if v, ok := m[k]; ok && v != nil {
+		if s, ok2 := v.(string); ok2 {
+			return s
+		}
+	}
+	return ""
+}
+
+// getMapNum safely extracts an int64 from a map[string]any, handling float64 and json.Number.
+func getMapNum(m map[string]any, k string) int64 {
+	if v, ok := m[k]; ok && v != nil {
+		switch x := v.(type) {
+		case float64:
+			return int64(x)
+		case int64:
+			return x
+		case json.Number:
+			n, _ := x.Int64()
+			return n
 		}
 	}
 	return 0
