@@ -25,4 +25,3 @@ func TestStringOrBool_Unmarshal(t *testing.T) {
 		t.Fatalf("string NO -> %q (err=%v), want 'false'", v, err)
 	}
 }
-

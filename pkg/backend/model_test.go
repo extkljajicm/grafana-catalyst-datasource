@@ -23,4 +23,3 @@ func TestIssuesURL_PrefixPreserved(t *testing.T) {
 		t.Fatalf("IssuesURL = %q, want %q", u, want)
 	}
 }
-

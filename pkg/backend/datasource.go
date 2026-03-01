@@ -197,12 +197,26 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 
 			var env IssuesEnvelope
 			var arr []map[string]any
-			if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
-				arr = env.Response
+
+			// Some API versions return a raw array instead of an envelope.
+			// Inspect the first non-whitespace byte to determine the structure
+			// without incurring a double-parse overhead.
+			var firstByte byte
+			for _, b := range body {
+				if b != ' ' && b != '\t' && b != '\r' && b != '\n' {
+					firstByte = b
+					break
+				}
+			}
+
+			if firstByte == '{' {
+				if err := json.Unmarshal(body, &env); err == nil {
+					arr = env.Response
+				}
 			} else {
-				// Some API versions might return a raw array instead of an envelope.
 				_ = json.Unmarshal(body, &arr)
 			}
+
 			if len(arr) == 0 {
 				// No more results, exit the pagination loop.
 				break

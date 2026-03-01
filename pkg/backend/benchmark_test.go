@@ -88,3 +88,82 @@ func BenchmarkAllocOutLoop(b *testing.B) {
 		}
 	}
 }
+
+var rawArrayJSON = []byte(`[{"issueId":"ID-12345","name":"Issue Name","timestamp":1678886400000,"siteId":"site-1","priority":"P1","status":"Open"}]`)
+var envelopeJSON = []byte(`{"response":[{"issueId":"ID-12345","name":"Issue Name","timestamp":1678886400000,"siteId":"site-1","priority":"P1","status":"Open"}]}`)
+
+func BenchmarkUnmarshalOld_Envelope(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		var env IssuesEnvelope
+		var arr []map[string]any
+		if err := json.Unmarshal(envelopeJSON, &env); err == nil && len(env.Response) > 0 {
+			arr = env.Response
+		} else {
+			_ = json.Unmarshal(envelopeJSON, &arr)
+		}
+		_ = arr
+	}
+}
+
+func BenchmarkUnmarshalOld_Array(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		var env IssuesEnvelope
+		var arr []map[string]any
+		if err := json.Unmarshal(rawArrayJSON, &env); err == nil && len(env.Response) > 0 {
+			arr = env.Response
+		} else {
+			_ = json.Unmarshal(rawArrayJSON, &arr)
+		}
+		_ = arr
+	}
+}
+
+func BenchmarkUnmarshalNew_Envelope(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		var env IssuesEnvelope
+		var arr []map[string]any
+
+		// find first non-whitespace
+		var firstByte byte
+		for _, c := range envelopeJSON {
+			if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+				firstByte = c
+				break
+			}
+		}
+
+		if firstByte == '{' {
+			if err := json.Unmarshal(envelopeJSON, &env); err == nil && len(env.Response) > 0 {
+				arr = env.Response
+			}
+		} else {
+			_ = json.Unmarshal(envelopeJSON, &arr)
+		}
+		_ = arr
+	}
+}
+
+func BenchmarkUnmarshalNew_Array(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		var env IssuesEnvelope
+		var arr []map[string]any
+
+		// find first non-whitespace
+		var firstByte byte
+		for _, c := range rawArrayJSON {
+			if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+				firstByte = c
+				break
+			}
+		}
+
+		if firstByte == '{' {
+			if err := json.Unmarshal(rawArrayJSON, &env); err == nil && len(env.Response) > 0 {
+				arr = env.Response
+			}
+		} else {
+			_ = json.Unmarshal(rawArrayJSON, &arr)
+		}
+		_ = arr
+	}
+}
