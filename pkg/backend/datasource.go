@@ -2,6 +2,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -195,14 +196,7 @@ func (d *Datasource) QueryData(ctx context.Context, req *backend.QueryDataReques
 				break
 			}
 
-			var env IssuesEnvelope
-			var arr []map[string]any
-			if err := json.Unmarshal(body, &env); err == nil && len(env.Response) > 0 {
-				arr = env.Response
-			} else {
-				// Some API versions might return a raw array instead of an envelope.
-				_ = json.Unmarshal(body, &arr)
-			}
+			arr := parseIssuesResponse(body)
 			if len(arr) == 0 {
 				// No more results, exit the pagination loop.
 				break
@@ -518,6 +512,31 @@ func firstNonZero(vals ...int64) int64 {
 		}
 	}
 	return 0
+}
+
+// parseIssuesResponse unmarshals issue JSON responses efficiently by detecting
+// whether the payload is an object envelope {"response": [...]} or a raw array [...].
+// This avoids redundant json.Unmarshal calls.
+func parseIssuesResponse(body []byte) []map[string]any {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil
+	}
+
+	if trimmed[0] == '[' {
+		var arr []map[string]any
+		_ = json.Unmarshal(body, &arr)
+		return arr
+	}
+
+	if trimmed[0] == '{' {
+		var env IssuesEnvelope
+		if err := json.Unmarshal(body, &env); err == nil {
+			return env.Response
+		}
+	}
+
+	return nil
 }
 
 // getMapStr safely extracts a string from a map[string]any.
