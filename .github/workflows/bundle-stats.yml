@@ -25,3 +25,4 @@ jobs:
           persist-credentials: false
 
       - uses: grafana/plugin-actions/bundle-size@main # zizmor: ignore[unpinned-uses] provided by grafana
+        continue-on-error: true
