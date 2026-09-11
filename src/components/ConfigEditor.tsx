@@ -1,10 +1,12 @@
 // ConfigEditor: Grafana plugin configuration UI for Catalyst datasource.
 // Allows users to set connection details, credentials, and security options.
 // All logic is handled via controlled components and Grafana's plugin API.
-import React, { ChangeEvent } from 'react';
-import type { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { Field, Input, SecretInput, Switch } from '@grafana/ui';
+import React, { ChangeEvent, useState } from 'react';
+import type { DataSourcePluginOptionsEditorProps, SelectableValue } from '@grafana/data';
+import { Field, Input, SecretInput, Switch, Select } from '@grafana/ui';
 import type { CatalystJsonData } from '../types';
+import { HelpTooltip } from './HelpTooltip';
+import { validateConfig } from '../validation';
 
 // SecureShape: Structure for secure fields (not stored in plain config)
 type SecureShape = {
@@ -20,10 +22,32 @@ type Props = DataSourcePluginOptionsEditorProps<CatalystJsonData, SecureShape>;
 export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
   // Destructure config objects for clarity
   const { jsonData, secureJsonData, secureJsonFields } = options;
+  
+  // State for validation errors
+  const [validationError, setValidationError] = useState<string>();
 
   // setJson: Update non-secure config fields
-  const setJson = (patch: Partial<CatalystJsonData>) =>
-    onOptionsChange({ ...options, jsonData: { ...(jsonData ?? {}), ...patch } });
+  const setJson = (patch: Partial<CatalystJsonData>) => {
+    const updated = { ...(jsonData ?? {}), ...patch };
+    onOptionsChange({ ...options, jsonData: updated });
+    
+    // Validate on change
+    const validation = validateConfig(updated);
+    if (!validation.valid) {
+      setValidationError(validation.errors.join(', '));
+    } else {
+      setValidationError(undefined);
+    }
+  };
+
+  // Endpoint options for selection (Grafana Select format)
+  const endpointOptions: Array<SelectableValue<string>> = [
+    { label: 'Issues/Alerts', value: 'alerts' },
+    { label: 'Site Health', value: 'siteHealth' },
+  ];
+
+  // Handler: Update endpoint selection for Grafana Select
+  const onEndpointChange = (v: SelectableValue<string>) => setJson({ endpoint: v.value });
 
   // setSecure: Update secure config fields (username, password, token)
   const setSecure = (patch: Partial<SecureShape>) =>
@@ -57,18 +81,73 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
   // Render: Form fields for all config options
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Display validation errors if any */}
+      {validationError && (
+        <div
+          style={{
+            padding: '8px 12px',
+            backgroundColor: '#f44336',
+            color: 'white',
+            borderRadius: '4px',
+            marginBottom: '8px',
+          }}
+        >
+          ⚠️ Configuration Error: {validationError}
+        </div>
+      )}
+
+      {/* Endpoint selection dropdown (Grafana Select) */}
+      <Field
+        label={
+          <span>
+            API Endpoint
+            <HelpTooltip content="Select which Catalyst Center API endpoint to query. Alerts for issues/alerts, Site Health for site metrics." />
+          </span>
+        }
+        description="Choose which Catalyst Center API endpoint to query."
+      >
+        <Select
+          options={endpointOptions}
+          value={endpointOptions.find((opt) => opt.value === (jsonData?.endpoint ?? 'alerts'))}
+          onChange={onEndpointChange}
+          width={30}
+        />
+      </Field>
+
       {/* Catalyst Base URL field. Proxy prefixes before /dna are preserved. */}
-      <Field label="Catalyst Base URL" description="https://<host> . Proxy prefixes before /dna are preserved.">
+      <Field
+        label={
+          <span>
+            Catalyst Base URL
+            <HelpTooltip
+              content="The base URL of your Cisco Catalyst Center instance. Include any proxy prefixes. Example: https://catalyst.example.com"
+              link="https://github.com/extkljajicm/grafana-catalyst-datasource#configuration"
+            />
+          </span>
+        }
+        description="https://<host> . Proxy prefixes before /dna are preserved."
+        invalid={validationError?.includes('Base URL')}
+        error={validationError?.includes('Base URL') ? 'Invalid Base URL format' : undefined}
+      >
         <Input
           value={jsonData?.baseUrl ?? ''}
           onChange={onBaseUrl}
-          placeholder="https://<host>"
+          placeholder="https://catalyst.example.com"
           width={60}
+          invalid={validationError?.includes('Base URL')}
         />
       </Field>
 
       {/* TLS verification toggle */}
-      <Field label="Skip TLS verification">
+      <Field
+        label={
+          <span>
+            Skip TLS verification
+            <HelpTooltip content="Only enable this for development/lab environments with self-signed certificates. Not recommended for production." />
+          </span>
+        }
+        description="Disable TLS certificate verification (use with caution)"
+      >
         <Switch
           value={!!jsonData?.insecureSkipVerify}
           onChange={(e) => setJson({ insecureSkipVerify: e.currentTarget.checked })}
@@ -76,7 +155,15 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       </Field>
 
       {/* Username field (secure) */}
-      <Field label="Username">
+      <Field
+        label={
+          <span>
+            Username
+            <HelpTooltip content="Username for Catalyst Center API authentication. Used to obtain an X-Auth-Token." />
+          </span>
+        }
+        description="Username for API authentication"
+      >
         <Input
           value={secureJsonData?.username ?? ''}
           onChange={onUser}
@@ -86,7 +173,15 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       </Field>
 
       {/* Password field (secure, resettable) */}
-      <Field label="Password">
+      <Field
+        label={
+          <span>
+            Password
+            <HelpTooltip content="Password for Catalyst Center API authentication. Stored securely by Grafana." />
+          </span>
+        }
+        description="Password for API authentication"
+      >
         <SecretInput
           isConfigured={!!secureJsonFields?.password}
           value={secureJsonData?.password}
@@ -98,19 +193,24 @@ export const ConfigEditor: React.FC<Props> = ({ options, onOptionsChange }) => {
       </Field>
 
       {/* API Token field (secure, optional, overrides password) */}
-      <Field label="API Token (override)">
+      <Field
+        label={
+          <span>
+            API Token (override)
+            <HelpTooltip content="Optional pre-issued X-Auth-Token. If provided, bypasses username/password authentication. Leave empty to use username/password." />
+          </span>
+        }
+        description="Optional: paste a pre-issued X-Auth-Token to bypass username/password"
+      >
         <SecretInput
           isConfigured={!!secureJsonFields?.apiToken}
           value={secureJsonData?.apiToken}
           onChange={onToken}
           onReset={onResetToken}
           placeholder="(optional) Paste X-Auth-Token"
-          width={40}   // narrower, matches username/password
+          width={40}
         />
       </Field>
     </div>
   );
 };
-
-// Default export for plugin registration
-export default ConfigEditor;

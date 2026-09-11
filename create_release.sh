@@ -46,6 +46,7 @@ find dist -type f -name "*.map" -delete || true
 mkdir -p "release/${PLUGIN_ID}"
 cp -R dist/* "release/${PLUGIN_ID}/"
 cp dist/plugin.json "release/${PLUGIN_ID}/plugin.json"
+cp -R src/img "release/${PLUGIN_ID}/"
 
 ( cd release && zip -r -X "../${ZIPNAME}" "${PLUGIN_ID}" )
 

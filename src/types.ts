@@ -4,57 +4,68 @@ import type { DataQuery, DataSourceJsonData } from '@grafana/data';
  * The only query type supported in this version of the plugin.
  * This corresponds to fetching issues/alerts from the Catalyst Center API.
  */
-export type QueryType = 'alerts';
+// Allow both legacy 'alerts' name and the API name 'assuranceIssues' for compatibility
+export type QueryType = 'alerts' | 'assuranceIssues' | 'siteHealth';
 
 // Define specific, strict types for query parameters to improve type safety.
+// Keep the canonical values uppercase as used across tests and UI (P1..P4)
 export type CatalystPriority = 'P1' | 'P2' | 'P3' | 'P4';
 export type CatalystIssueStatus = 'ACTIVE' | 'RESOLVED' | 'IGNORED';
 
 /**
  * Represents the query structure that is sent from the frontend query editor
  * to the backend.
- *
- * NOTE:
- * - The Catalyst Center API uses `priority` (P1..P4) and `issueStatus` (ACTIVE/IGNORED/RESOLVED).
- * - The `severity` and `status` fields are included as optional aliases for backward
- *   compatibility or UI convenience. The backend is responsible for normalizing these
- *   to the correct API parameters.
  */
 export interface CatalystQuery extends DataQuery {
   queryType: QueryType;
-
-  // Filters that map directly to Catalyst Center API parameters.
-  siteId?: string;
-  deviceId?: string;
-  macAddress?: string;
-  priority?: CatalystPriority[];
-  issueStatus?: CatalystIssueStatus;
-  aiDriven?: string; // Should be 'true' or 'false' as a string.
-
-  // UI-friendly aliases (optional). The frontend can map these to the main fields.
-  severity?: string; // alias for priority
-  status?: string; // alias for issueStatus
-
-  // A hard cap on the total number of results to return. This is applied by the
-  // backend after it has paginated through the API to collect all issues.
+  endpoint?: 'alerts' | 'siteHealth' | 'issues';
   limit?: number;
-
-  /**
-   * When true, the backend will perform extra API calls to enrich the data.
-   * For example, it will resolve site IDs to their corresponding site names.
-   * This can improve readability but may impact query performance.
-   */
+  priority?: CatalystPriority[];
+  status?: CatalystIssueStatus[];
+  networkDeviceId?: string;
+  macAddress?: string;
+  siteId?: string[];
+  issueName?: string;
+  // Reserved for future performance-intensive lookups (e.g., full device details)
   enrich?: boolean;
+  siteType?: string;
+  parentSiteName?: string;
+  siteName?: string[];
+  parentSiteId?: string;
+  metrics?: string[];
+  aiDriven?: boolean;
+  isGlobal?: boolean;
 }
 
 /**
  * Defines the default values for a new query in the query editor.
  */
 export const DEFAULT_QUERY: Partial<CatalystQuery> = {
-  queryType: 'alerts',
-  limit: 25,
+  queryType: 'assuranceIssues',
+  limit: 100,
+  priority: [],
+  status: [],
+  networkDeviceId: '',
+  macAddress: '',
+  siteId: [],
+  issueName: '',
   enrich: false,
+  siteType: '',
+  parentSiteName: '',
+  siteName: [],
+  parentSiteId: '',
+  metrics: [],
+  aiDriven: false,
+  isGlobal: false,
 };
+
+export const metricOptions = [
+  { label: 'Client Count', value: 'clientCount' },
+  { label: 'Health Score', value: 'healthScore' },
+  { label: 'Access Point Count', value: 'accessPointCount' },
+  { label: 'Switch Count', value: 'switchCount' },
+  { label: 'Router Count', value: 'routerCount' },
+];
 
 /**
  * Represents the non-sensitive configuration data for the datasource instance,
@@ -66,6 +77,10 @@ export interface CatalystJsonData extends DataSourceJsonData {
    * Example: https://catalyst.example.com
    */
   baseUrl?: string;
+  /**
+   * The selected API endpoint for queries (e.g., 'alerts', 'siteHealth').
+   */
+  endpoint?: string;
 
   /**
    * If true, the backend will not verify the TLS certificate of the API endpoint.

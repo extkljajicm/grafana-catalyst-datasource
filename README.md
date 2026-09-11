@@ -127,24 +127,6 @@ Output: `grafana-catalyst-datasource-<version>.zip` in the repo root.
 
 ---
 
-## Troubleshooting
-
-- **Plugin not visible**
-  - Confirm Grafana **12.1+**
-  - Check container logs for plugin load errors
-  - Ensure the build created `dist/` with processed `plugin.json` (placeholders like `%VERSION%` / `%TODAY%` are replaced during build)
-
-- **Backend missing in package**
-  - Ensure `Magefile.go` is present and used by the build
-  - Confirm `plugin.json` has `"backend": true` and `"executable": "grafana-catalyst-datasource"`
-
-- **Windows ADS file in zip**
-  - Remove any `*:Zone.Identifier` file and add this to `.gitignore`:
-    ```
-    *:Zone.Identifier
-    ```
-
----
 
 ## License
 

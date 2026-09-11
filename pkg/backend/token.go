@@ -13,11 +13,6 @@ import (
 	log "github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
-var (
-	httpDateLayouts = []string{time.RFC1123, time.RFC1123Z, time.RFC850, time.ANSIC}
-	rfcTimeLayouts  = []string{time.RFC3339, time.RFC1123, time.RFC1123Z, time.RFC850, time.ANSIC}
-)
-
 // tokenManager handles the acquisition and caching of authentication tokens.
 // It ensures that a valid token is available for API requests, refreshing it
 // automatically when it expires. It supports both username/password credentials
@@ -26,6 +21,12 @@ var (
 type tokenManager struct {
 	mu    sync.Mutex
 	cache map[string]tokenEntry // key: instance UID
+}
+
+// tokenEntry represents a cached authentication token and its expiry time.
+type tokenEntry struct {
+	Token     string
+	ExpiresAt int64 // Unix timestamp
 }
 
 // newTokenManager creates a new token manager with an empty cache.
@@ -207,7 +208,7 @@ func parseExpiryFromHeaders(h http.Header) (int64, bool) {
 	// 4) Expires: HTTP-date (RFC7231)
 	if exp := strings.TrimSpace(h.Get("Expires")); exp != "" {
 		// Try common HTTP date formats
-		for _, layout := range httpDateLayouts {
+		for _, layout := range []string{time.RFC1123, time.RFC1123Z, time.RFC850, time.ANSIC} {
 			if t, err := time.Parse(layout, exp); err == nil {
 				if t.After(now) {
 					return t.Unix(), true
@@ -274,7 +275,7 @@ func deriveExpiryFromJSON(body struct {
 
 	// RFC time string
 	if ts := strings.TrimSpace(body.ExpireTimeRFC); ts != "" {
-		for _, layout := range rfcTimeLayouts {
+		for _, layout := range []string{time.RFC3339, time.RFC1123, time.RFC1123Z, time.RFC850, time.ANSIC} {
 			if t, err := time.Parse(layout, ts); err == nil && t.After(now.Add(1*time.Minute)) {
 				return t.Unix(), true
 			}

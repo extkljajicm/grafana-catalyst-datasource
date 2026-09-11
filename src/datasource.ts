@@ -6,9 +6,21 @@
 // - Implementing template variable queries (metricFindQuery)
 // - Efficiently extracting unique values for template variables from recent issues
 
-import { DataSourceWithBackend } from '@grafana/runtime';
-import type { CoreApp, DataSourceInstanceSettings, MetricFindValue } from '@grafana/data';
-import { DEFAULT_QUERY as DEFAULTS, type CatalystQuery, type CatalystJsonData, type CatalystVariableQuery } from './types';
+import { DataSourceWithBackend, getTemplateSrv } from '@grafana/runtime';
+import type {
+  CoreApp,
+  DataSourceInstanceSettings,
+  MetricFindValue,
+  ScopedVars,
+} from '@grafana/data';
+import {
+  DEFAULT_QUERY as DEFAULTS,
+  type CatalystQuery,
+  type CatalystJsonData,
+  type CatalystVariableQuery,
+} from './types';
+import { parseError } from './errors';
+import { logger } from './logger';
 
 type InstanceSettings = DataSourceInstanceSettings<CatalystJsonData>;
 
@@ -18,19 +30,47 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 5; // variable helper only
 
 export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJsonData> {
+  instanceSettings: InstanceSettings;
+  private log = logger.child('DataSource');
+
   constructor(instanceSettings: InstanceSettings) {
     super(instanceSettings);
+    this.instanceSettings = instanceSettings;
+    this.log.debug('DataSource initialized', { uid: instanceSettings.uid });
   }
 
   // Returns the default query structure for new panels/targets.
-  getDefaultQuery(_: CoreApp): Partial<CatalystQuery> {
-    return DEFAULTS;
+  getDefaultQuery(app: CoreApp): Partial<CatalystQuery> {
+    // Use endpoint from config if available
+    const endpoint = (this.instanceSettings.jsonData?.endpoint ?? 'alerts') as CatalystQuery['endpoint'];
+    return { ...DEFAULTS, endpoint, queryType: endpoint === 'siteHealth' ? 'siteHealth' : 'alerts' };
   }
 
-  // Prevents Grafana from executing empty or invalid queries.
-  // Only queries of type 'alerts' are allowed.
+  // filterQuery is called by Grafana to prevent the execution of empty or invalid queries.
+  // We allow all queries to pass through, as the backend handles validation.
   filterQuery(query: CatalystQuery): boolean {
-    return !!query && query.queryType === 'alerts';
+    return true;
+  }
+
+  // applyTemplateVariables is a required method that Grafana uses to substitute
+  // template variables into a query before sending it to the backend.
+  applyTemplateVariables(query: CatalystQuery, scopedVars: ScopedVars): CatalystQuery {
+    const templateSrv = getTemplateSrv();
+    const replaceValue = (val: string | string[] | undefined) => {
+      if (Array.isArray(val)) {
+        return val.map((v) => templateSrv.replace(v, scopedVars));
+      }
+      return templateSrv.replace(val as string | undefined, scopedVars);
+    };
+
+    return {
+      ...query,
+      siteId: replaceValue(query.siteId) as any,
+      networkDeviceId: templateSrv.replace(query.networkDeviceId, scopedVars),
+      macAddress: templateSrv.replace(query.macAddress, scopedVars),
+      parentSiteName: templateSrv.replace(query.parentSiteName, scopedVars),
+      siteName: replaceValue(query.siteName) as any,
+    };
   }
 
   /**
@@ -86,29 +126,49 @@ export class DataSource extends DataSourceWithBackend<CatalystQuery, CatalystJso
         offset: String(offset),
       });
 
-      // getResource calls the backend's CallResource handler, which proxies to the Catalyst Center API.
-      const data: any = await this.getResource<any>(`issues?${params.toString()}`);
-      const arr: any[] = Array.isArray(data) ? data : (data?.response ?? []);
-      if (!arr.length) {break;}
+      try {
+        // getResource calls the backend's CallResource handler, which proxies to the Catalyst Center API.
+        const data: any = await this.getResource<any>(`issues?${params.toString()}`);
+        const arr: any[] = Array.isArray(data) ? data : data?.response ?? [];
+        if (!arr.length) {
+          break;
+        }
 
-      for (const it of arr) {
-        for (const k of keys) {
-          const v = it?.[k];
-          if (typeof v === 'string' && v.trim()) {
-            const val = v.trim();
-            if (!s || val.toLowerCase().includes(s)) {
-              out.add(val);
+        this.log.debug('Fetched issues for variable', { page, count: arr.length });
+
+        for (const it of arr) {
+          for (const k of keys) {
+            const v = it?.[k];
+            if (typeof v === 'string' && v.trim()) {
+              const val = v.trim();
+              if (!s || val.toLowerCase().includes(s)) {
+                out.add(val);
+              }
+              break;
             }
-            break;
           }
         }
-      }
 
-      if (arr.length < PAGE_SIZE) {break;}
-      offset += PAGE_SIZE;
+        if (arr.length < PAGE_SIZE) {
+          break;
+        }
+        offset += PAGE_SIZE;
+      } catch (error) {
+        // Parse and log error, but continue to return any data we've collected so far
+        const catalystError = parseError(error);
+        this.log.error('Error fetching issues for variable', catalystError, { page, collectedSoFar: out.size });
+        // If this is the first page and we have no data, propagate the error
+        if (page === 0 && out.size === 0) {
+          throw catalystError;
+        }
+        // Otherwise, return what we have so far
+        break;
+      }
     }
 
-    return Array.from(out).sort().map((v) => ({ text: v, value: v }));
+    return Array.from(out)
+      .sort()
+      .map((v) => ({ text: v, value: v }));
   }
 }
 

@@ -2,62 +2,85 @@
 // This file, params.go, is responsible for converting the frontend query model
 // into the URL query parameters expected by the Catalyst Center API. It handles
 // normalization, validation, and formatting of filter values.
+
 package backend
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
+// buildSiteHealthParamsFromQuery converts a QueryModel into url.Values for the site-health endpoint.
+func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64, limit int, offset int) url.Values {
+	p := url.Values{}
+	p.Set("timestamp", fmt.Sprintf("%d", timestamp))
+
+	if q.SiteType != "" {
+		p.Set("siteType", q.SiteType)
+	}
+
+	// The site-health endpoint does not support filtering by siteId or siteName directly in the query params.
+	// This filtering should be done on the client-side after fetching the data,
+	// or the query needs to be adapted if a different endpoint is more suitable.
+	// For now, we will not add siteId/siteName to the query.
+
+	// Clamp limit to sane values: default 50, min 1, max 50 (API max)
+	clampedLimit := clampLimit(limit, 50, 1, 50)
+	p.Set("limit", strconv.Itoa(clampedLimit))
+	
+	// Ensure offset is at least 1 (API uses 1-based indexing)
+	if offset < 1 {
+		offset = 1
+	}
+	p.Set("offset", strconv.Itoa(offset))
+
+	return p
+}
+
 // Allowed value sets for validation and normalization.
 var (
 	// allowedPriority defines the valid priority values for the API.
-	allowedPriority = map[string]struct{}{"P1": {}, "P2": {}, "P3": {}, "P4": {}}
+	// Priority values are case-insensitive (p1, P1) but normalized to lowercase for API.
+	allowedPriority = map[string]struct{}{"p1": {}, "p2": {}, "p3": {}, "p4": {}}
 	// allowedIssueStatus defines the valid status values for the API.
-	allowedIssueStatus = map[string]struct{}{"ACTIVE": {}, "RESOLVED": {}, "IGNORED": {}}
+	// Status values are case-insensitive (ACTIVE, active) but normalized to lowercase for API.
+	allowedIssueStatus = map[string]struct{}{"active": {}, "resolved": {}, "ignored": {}}
 )
 
-// normalizePriority returns a valid priority string (P1-P4) if the input
-// matches a known value. It checks both 'priority' and the legacy 'severity' fields.
-func normalizePriority(priority, severity string) (string, bool) {
-	p := strings.ToUpper(strings.TrimSpace(priority))
+// normalizePriority returns a valid priority string (p1-p4) in lowercase if the input
+// matches a known value. Accepts case-insensitive input (e.g., P1, p1, P2).
+// Supports legacy field alias: if priority is empty, falls back to severity.
+func normalizePriority(priority string, severity string) (string, bool) {
+	// Use priority if provided, otherwise fall back to severity (legacy field)
+	value := priority
+	if value == "" {
+		value = severity
+	}
+	
+	p := strings.ToLower(strings.TrimSpace(value))
 	if _, ok := allowedPriority[p]; ok {
 		return p, true
-	}
-	s := strings.ToUpper(strings.TrimSpace(severity))
-	if _, ok := allowedPriority[s]; ok {
-		return s, true
 	}
 	return "", false
 }
 
-// normalizeIssueStatus returns a valid status string if the input matches a known
-// value. It checks both 'issueStatus' and the legacy 'status' fields.
-func normalizeIssueStatus(issueStatus, status string) (string, bool) {
-	is := strings.ToUpper(strings.TrimSpace(issueStatus))
-	if _, ok := allowedIssueStatus[is]; ok {
-		return is, true
+// normalizeIssueStatus returns a valid status string in lowercase if the input matches a known
+// value. Accepts case-insensitive input (e.g., ACTIVE, active, Active).
+// Supports legacy field alias: if issueStatus is empty, falls back to status.
+func normalizeIssueStatus(issueStatus string, status string) (string, bool) {
+	// Use issueStatus if provided, otherwise fall back to status (legacy field)
+	value := issueStatus
+	if value == "" {
+		value = status
 	}
-	s := strings.ToUpper(strings.TrimSpace(status))
+	
+	s := strings.ToLower(strings.TrimSpace(value))
 	if _, ok := allowedIssueStatus[s]; ok {
 		return s, true
 	}
 	return "", false
-}
-
-// normalizeBoolish converts various string representations of a boolean
-// (e.g., "true", "yes", "1") into a canonical "true" or "false" string.
-func normalizeBoolish(s string) (string, bool) {
-	v := strings.ToLower(strings.TrimSpace(s))
-	switch v {
-	case "true", "yes", "1":
-		return "true", true
-	case "false", "no", "0":
-		return "false", true
-	default:
-		return "", false
-	}
 }
 
 // clampLimit enforces sane bounds on the limit parameter, preventing excessively
@@ -76,65 +99,68 @@ func clampLimit(n, def, min, max int) int {
 }
 
 // buildAssuranceParamsFromQuery converts a QueryModel from the frontend into a
-// url.Values map suitable for encoding as URL query parameters.
-// It performs the following key operations:
-// - Sets pagination parameters ('limit' and 'offset').
-// - Adds time range filters ('startTime', 'endTime') if provided.
-// - Adds normalized and validated filters for site, device, status, etc.
-// - Skips any empty or invalid filter values to create a clean API request.
+// url.Values map for querying the assurance issues endpoint.
 func buildAssuranceParamsFromQuery(q QueryModel, startTime, endTime int64, pageSize, offset int) url.Values {
-	v := url.Values{}
+	p := url.Values{}
+	
+	// Only set time parameters if they are non-zero
+	if startTime > 0 {
+		p.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if endTime > 0 {
+		p.Set("endTime", strconv.FormatInt(endTime, 10))
+	}
 
-	// Paging (one-based offset agreed)
-	v.Set("limit", strconv.Itoa(clampLimit(pageSize, 100, 1, 1000)))
+       if len(q.Priority) > 0 {
+	       for _, prio := range q.Priority {
+		       normPrio, ok := normalizePriority(prio, "")
+		       if ok {
+			       p.Add("priority", normPrio)
+		       }
+	       }
+       }
+       if len(q.Status) > 0 {
+	       for _, stat := range q.Status {
+		       normStatus, ok := normalizeIssueStatus(stat, "")
+		       if ok {
+			       p.Add("status", normStatus)
+		       }
+	       }
+       }
+	if q.NetworkDeviceID != "" {
+		p.Set("networkDeviceId", q.NetworkDeviceID)
+	}
+	if q.MACAddress != "" {
+		p.Set("macAddress", q.MACAddress)
+	}
+       // Send all site IDs as repeated keys, per API spec.
+       if len(q.SiteID) > 0 {
+	       for _, id := range q.SiteID {
+		       if id != "" {
+			       p.Add("siteId", id)
+		       }
+	       }
+       }
+	if q.IssueName != "" {
+		// The 'IssueName' from the UI corresponds to the 'name' of the issue in the API
+		p.Set("name", q.IssueName)
+	}
+	if q.AIDriven {
+		p.Set("aiDriven", "true")
+	}
+	if q.IsGlobal {
+		p.Set("isGlobal", "true")
+	}
+
+	// Clamp limit to sane values: default 100, min 1, max 500
+	clampedLimit := clampLimit(pageSize, 100, 1, 500)
+	p.Set("limit", strconv.Itoa(clampedLimit))
+	
+	// Ensure offset is at least 1 (API uses 1-based indexing)
 	if offset < 1 {
 		offset = 1
 	}
-	v.Set("offset", strconv.Itoa(offset))
+	p.Set("offset", strconv.Itoa(offset))
 
-	// Optional time range (ignored if zero)
-	if startTime > 0 {
-		v.Set("startTime", strconv.FormatInt(startTime, 10))
-	}
-	if endTime > 0 {
-		v.Set("endTime", strconv.FormatInt(endTime, 10))
-	}
-
-	// Filters (skip empties)
-	if s := strings.TrimSpace(q.SiteID); s != "" {
-		v.Set("siteId", s)
-	}
-	if s := strings.TrimSpace(q.DeviceID); s != "" {
-		v.Set("deviceId", s)
-	}
-	if s := strings.TrimSpace(q.MacAddress); s != "" {
-		v.Set("macAddress", s)
-	}
-
-	// Handle Priority: The API expects a comma-separated string.
-	if len(q.Priority) > 0 {
-		var validPriorities []string
-		for _, p := range q.Priority {
-			if norm, ok := normalizePriority(p, ""); ok {
-				validPriorities = append(validPriorities, norm)
-			}
-		}
-		if len(validPriorities) > 0 {
-			v.Set("priority", strings.Join(validPriorities, ","))
-		}
-	} else if norm, ok := normalizePriority("", q.Severity); ok {
-		// Fallback to legacy Severity field if Priority array is empty
-		v.Set("priority", norm)
-	}
-
-	if st, ok := normalizeIssueStatus(q.IssueStatus, q.Status); ok {
-		v.Set("status", strings.ToLower(st))
-	}
-
-	// AIDriven is a custom StringOrBool type (backward-compatible)
-	if b, ok := normalizeBoolish(q.AIDriven.String()); ok {
-		v.Set("aiDriven", b)
-	}
-
-	return v
+	return p
 }

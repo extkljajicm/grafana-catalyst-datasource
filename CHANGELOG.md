@@ -1,10 +1,48 @@
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [1.3.0] - 2025-10-09
+
+### Changed
+- **Site Health Query:** Refactored the `siteHealth` query to remove the time series generation. It now makes a single API call to fetch the current values and displays them in a table, simplifying the visualization and reducing backend load.
+
+### Added
+- **Expanded Site Health Metrics:** Added a comprehensive list of new metrics to the `siteHealth` query editor, including device counts (`accessTotalCount`, `apDeviceTotalCount`, etc.) and more detailed health scores.
+
+## [1.2.0] - 2025-09-30
+
+### Fixed
+- **Site Health Metrics:** Fixed an issue where `clientCount` and `healthScore` were returning zero due to incorrect metric name mapping in the backend.
+- **UI Duplication:** Resolved a UI bug where filter fields in the `siteHealth` query editor were duplicated.
+- **Build Process:** Corrected the build script to ensure the plugin logo is always included in the release package.
+- **Time Range Filtering:** Fixed a bug where the `siteHealth` endpoint was not correctly using the Grafana time range selector.
+
+### Added
+- **Time Series Visualization:** Implemented true time series support for `siteHealth` queries. The backend now iterates over the selected time range to build a full time series.
+- **Expanded Site Health Filtering:** Added support for filtering by `siteId` and `parentSiteId` in the `siteHealth` query.
+- **Expanded Site Health Metrics:** The "Metrics" selector for `siteHealth` now includes all relevant metrics from the API documentation.
+
+### Changed
+- **Refactored Query Editor:** The `QueryEditor` component was refactored to use a single state object, improving maintainability.
+- **Improved Docker Workflow:** The build and deployment process now correctly uses `docker compose down` to ensure a clean environment.
+
+## [1.1.0] - 2025-09-29
+
+### Added
+- **Endpoint filter feature:** Users can now select the API endpoint in the data source config, enabling support for multiple endpoints and dynamic query editor filters.
+- **Site Health endpoint support:** Added support for `/dna/intent/api/v1/site-health` to fetch overall health metrics for all sites, with filters for site type, limit, offset, timestamp, parent site name, and site name.
+- **Time series selection:** Query editor allows users to select which site health metrics to visualize as time series (e.g., accessGoodCount, clientHealthWired, networkHealthAP, etc.).
+
+### Changed
+- Backend and frontend logic updated to support dynamic filters and endpoint selection without breaking existing functionality.
+
+### Notes
+- Existing issue/alerts endpoint and features remain unchanged.
+- This is a minor version bump due to new feature addition.
 
 ## [1.0.4] - 2025-09-27
 
