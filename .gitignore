@@ -65,7 +65,7 @@ serviceAccountKey.json
 .zsh_history
 .history
 
----
+# ---
 
 # -------------------------------------------------------------------
 # Logs, Databases & Runtime Data
@@ -93,7 +93,7 @@ pids
 *.dump
 *.rdb
 
----
+# ---
 
 # -------------------------------------------------------------------
 # Dependency Directories
@@ -111,7 +111,7 @@ jspm_packages/
 .yarn/install-state.gz
 .pnp.*
 
----
+# ---
 
 # -------------------------------------------------------------------
 # Build, Compilation & Packaging Output ⚙️
@@ -127,6 +127,8 @@ work/
 ci/
 release/
 *.zip
+*.sha1
+*.sha256
 
 # Compiled files
 *.o
@@ -143,6 +145,10 @@ release/
 *.test
 *.out
 
+# TypeScript & SWC cache
+*.tsbuildinfo
+.swc/
+
 # Python cache
 __pycache__/
 *.py[cod]
@@ -150,11 +156,13 @@ __pycache__/
 
 # Go
 .magefile
+__debug_bin*
+/grafana-catalyst-datasource
 
 # Grafana
 .grafana-*
 
----
+# ---
 
 # -------------------------------------------------------------------
 # Testing & Coverage Reports
@@ -172,7 +180,7 @@ lib-cov/
 /playwright/.cache/
 /playwright/.auth/
 
----
+# ---
 
 # -------------------------------------------------------------------
 # IDE & Editor Directories
@@ -187,6 +195,7 @@ lib-cov/
 !.vscode/*.code-snippets
 .history/
 *.vsix
+*.code-workspace
 
 # JetBrains (IntelliJ, PyCharm, etc.)
 .idea/
@@ -195,15 +204,22 @@ lib-cov/
 *.swp
 *.swo
 
----
+# ---
 
 # -------------------------------------------------------------------
-# Containerization 🐳
+# Containerization & Local Overrides 🐳
 # -------------------------------------------------------------------
 # Local Docker Compose overrides can contain secrets or local paths.
 docker-compose.override.yml
+docker-compose.override.yaml
+docker-compose*.local.yml
+docker-compose*.local.yaml
 
----
+# Local provisioning overrides
+provisioning/**/*.local.yaml
+provisioning/**/*.local.yml
+
+# ---
 
 # -------------------------------------------------------------------
 # OS-Specific Files
@@ -251,13 +267,7 @@ $RECYCLE.BIN/
 *.lnk
 *:Zone.Identifier
 
----
-
-# Docker
-docker-compose.override.yml
-
-# Copilot
-.github/copilot-instructions.md
+# ---
 
 # -------------------------------------------------------------------
 # General Backup & Temporary Files
