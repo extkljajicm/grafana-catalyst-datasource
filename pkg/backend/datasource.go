@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -292,12 +293,25 @@ func (d *Datasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRe
 
 // CallResource handles custom API requests from the frontend.
 func (d *Datasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	if req.Path == "sites" {
+	switch req.Path {
+	case "sites":
 		return d.handleSitesRequest(ctx, req, sender)
+	case "issues":
+		inst, err := getInstanceFromPluginContext(req.PluginContext)
+		if err != nil {
+			return sender.Send(&backend.CallResourceResponse{
+				Status: http.StatusInternalServerError,
+				Body:   []byte("failed to get instance settings: " + err.Error()),
+			})
+		}
+		httpClient := d.httpClientFor(inst.Settings)
+		return d.resourceIssues(ctx, inst, req, sender, httpClient)
+	default:
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusNotFound,
+			Body:   []byte("not found"),
+		})
 	}
-	return sender.Send(&backend.CallResourceResponse{
-		Status: http.StatusNotFound,
-	})
 }
 
 // handleSitesRequest fetches all sites using the translator and returns them as JSON.
@@ -329,8 +343,73 @@ func (d *Datasource) handleSitesRequest(ctx context.Context, req *backend.CallRe
 	}
 
 	return sender.Send(&backend.CallResourceResponse{
-		Status: http.StatusOK,
-		Body:   body,
+		Status:  http.StatusOK,
+		Body:    body,
+		Headers: map[string][]string{"Content-Type": {"application/json"}},
+	})
+}
+
+// resourceIssues handles requests to the /issues resource path. It forwards the
+// query parameters from the frontend to the Catalyst Center issues API.
+func (d *Datasource) resourceIssues(ctx context.Context, inst *dsInstance, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, httpClient *http.Client) error {
+	issuesURL, err := IssuesURL(inst.Settings.BaseURL)
+	if err != nil {
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusBadRequest,
+			Body:   []byte("bad baseUrl: " + err.Error()),
+		})
+	}
+
+	var rawQuery string
+	if req.URL != "" {
+		if u, err := url.Parse(req.URL); err == nil {
+			rawQuery = u.RawQuery
+		}
+	}
+
+	q := ""
+	if rawQuery != "" {
+		q = "?" + rawQuery
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, issuesURL+q, nil)
+	if err != nil {
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusInternalServerError,
+			Body:   []byte("failed to create request: " + err.Error()),
+		})
+	}
+
+	tok, err := d.tm.getToken(ctx, inst.UID, inst.Settings, httpClient)
+	if err != nil {
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusUnauthorized,
+			Body:   []byte("token: " + err.Error()),
+		})
+	}
+	httpReq.Header.Set("X-Auth-Token", tok)
+
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusBadGateway,
+			Body:   []byte("request failed: " + err.Error()),
+		})
+	}
+	defer httpResp.Body.Close()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return sender.Send(&backend.CallResourceResponse{
+			Status: http.StatusInternalServerError,
+			Body:   []byte("failed to read response: " + err.Error()),
+		})
+	}
+
+	return sender.Send(&backend.CallResourceResponse{
+		Status:  httpResp.StatusCode,
+		Body:    body,
+		Headers: map[string][]string{"Content-Type": {"application/json"}},
 	})
 }
 

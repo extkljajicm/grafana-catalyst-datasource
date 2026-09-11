@@ -54,7 +54,8 @@ Always align plugin communication with official Cisco Catalyst Center API standa
 Catalyst Center organizes endpoints by domain:
 - **Authentication API:** `/dna/system/api/v1/auth/token`
 - **Assurance Issues API:** `/dna/data/api/v1/assuranceIssues`
-- **Intent Site API:** `/dna/intent/api/v1/site`
+- **Intent Site API:** `/dna/intent/api/v2/site`
+- **Site Health API:** `/dna/intent/api/v1/site-health`
 
 **Base URL Rules:**
 - The configured `baseUrl` must specify the root host (for example: `https://catalyst.example.com`).
@@ -164,7 +165,7 @@ All backend code lives in `pkg/backend/` and `cmd/grafana-catalyst-datasource/`.
 - Always use the URL helper functions in `model.go`:
   - `TokenURL(baseURL)`: Returns the token endpoint path (`/dna/system/api/v1/auth/token`).
   - `IssuesURL(baseURL)`: Returns the issues endpoint path (`/dna/data/api/v1/assuranceIssues`).
-  - `SiteURL(baseURL)`: Returns the site lookup endpoint path (`/dna/intent/api/v1/site`).
+  - `SiteURL(baseURL)`: Returns the site lookup endpoint path (`/dna/intent/api/v2/site`).
 - These helper functions call `dnacPrefix()`. This preserves reverse-proxy prefixes before `/dna`.
 - Do not build endpoint URLs by direct string concatenation.
 
@@ -189,6 +190,13 @@ All backend code lives in `pkg/backend/` and `cmd/grafana-catalyst-datasource/`.
   5. Converts issues into a `data.Frame`.
 - **Enrichment Rule:** Collect all unique site IDs after the query loop. Make one bulk API request to `SiteURL()` with comma-separated IDs. Do not make individual API requests per issue row.
 - **Code Organization:** Keep `datasource.go` focused on orchestration. Move URL logic to `model.go` and parameter logic to `params.go`.
+
+### 4.5 Resource Routing (`CallResource`)
+
+- `CallResource()` routes custom frontend resource requests:
+  - `sites`: Returns cached site hierarchy objects via `handleSitesRequest()`.
+  - `issues`: Forwards query requests to `/dna/data/api/v1/assuranceIssues` via `resourceIssues()` with authentication headers to power dynamic template variable resolution (`sites`, `devices`, `macs`).
+  - Any other path: Returns HTTP 404 Not Found.
 
 ---
 

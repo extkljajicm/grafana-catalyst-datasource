@@ -42,14 +42,14 @@ func buildSiteHealthParamsFromQuery(q QueryModel, timestamp int64, limit int, of
 // Allowed value sets for validation and normalization.
 var (
 	// allowedPriority defines the valid priority values for the API.
-	// Priority values are case-insensitive (p1, P1) but normalized to lowercase for API.
-	allowedPriority = map[string]struct{}{"p1": {}, "p2": {}, "p3": {}, "p4": {}}
+	// Priority values are case-insensitive (p1, P1) but normalized to uppercase for API.
+	allowedPriority = map[string]struct{}{"P1": {}, "P2": {}, "P3": {}, "P4": {}}
 	// allowedIssueStatus defines the valid status values for the API.
 	// Status values are case-insensitive (ACTIVE, active) but normalized to lowercase for API.
 	allowedIssueStatus = map[string]struct{}{"active": {}, "resolved": {}, "ignored": {}}
 )
 
-// normalizePriority returns a valid priority string (p1-p4) in lowercase if the input
+// normalizePriority returns a valid priority string (P1-P4) in uppercase if the input
 // matches a known value. Accepts case-insensitive input (e.g., P1, p1, P2).
 // Supports legacy field alias: if priority is empty, falls back to severity.
 func normalizePriority(priority string, severity string) (string, bool) {
@@ -59,7 +59,7 @@ func normalizePriority(priority string, severity string) (string, bool) {
 		value = severity
 	}
 	
-	p := strings.ToLower(strings.TrimSpace(value))
+	p := strings.ToUpper(strings.TrimSpace(value))
 	if _, ok := allowedPriority[p]; ok {
 		return p, true
 	}

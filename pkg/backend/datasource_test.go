@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -559,5 +562,158 @@ func TestDatasource_GetSiteTranslator(t *testing.T) {
 	// Now should have 2 translators
 	if len(ds.translators) != 2 {
 		t.Fatalf("expected 2 translators in map, got: %d", len(ds.translators))
+	}
+}
+
+// ==================== Mock CallResourceResponseSender ====================
+
+type mockResourceSender struct {
+	resp *backend.CallResourceResponse
+}
+
+func (m *mockResourceSender) Send(resp *backend.CallResourceResponse) error {
+	m.resp = resp
+	return nil
+}
+
+func TestDatasource_CallResource_NotFound(t *testing.T) {
+	ctx := context.Background()
+	ds := NewDatasource()
+
+	sender := &mockResourceSender{}
+	req := &backend.CallResourceRequest{
+		Path: "unknown_path",
+	}
+
+	err := ds.CallResource(ctx, req, sender)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.resp == nil || sender.resp.Status != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got: %v", sender.resp)
+	}
+}
+
+func TestDatasource_CallResource_MissingSettings(t *testing.T) {
+	ctx := context.Background()
+	ds := NewDatasource()
+
+	for _, path := range []string{"sites", "issues"} {
+		sender := &mockResourceSender{}
+		req := &backend.CallResourceRequest{
+			Path: path,
+		}
+		err := ds.CallResource(ctx, req, sender)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sender.resp == nil || sender.resp.Status != http.StatusInternalServerError {
+			t.Fatalf("path %s: expected 500 error on missing settings, got: %v", path, sender.resp)
+		}
+	}
+}
+
+func TestDatasource_CallResource_Issues(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dna/system/api/v1/auth/token":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"Token": "test-token"}`))
+		case "/dna/data/api/v1/assuranceIssues":
+			if r.Header.Get("X-Auth-Token") != "test-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if r.URL.Query().Get("limit") != "10" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"response":[{"issueId":"iss-1","name":"ap_down"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	ds := NewDatasource()
+	sender := &mockResourceSender{}
+	req := &backend.CallResourceRequest{
+		Path: "issues",
+		URL:  "issues?limit=10",
+		PluginContext: backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+				UID:      "test-instance-issues",
+				JSONData: json.RawMessage(fmt.Sprintf(`{"baseUrl": %q}`, server.URL)),
+				DecryptedSecureJSONData: map[string]string{
+					"username": "user",
+					"password": "pass",
+				},
+			},
+		},
+	}
+
+	err := ds.CallResource(ctx, req, sender)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.resp == nil || sender.resp.Status != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %v", sender.resp)
+	}
+	if !strings.Contains(string(sender.resp.Body), "iss-1") {
+		t.Fatalf("expected response body to contain iss-1, got: %s", string(sender.resp.Body))
+	}
+}
+
+func TestDatasource_CallResource_Sites(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dna/system/api/v1/auth/token":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"Token": "test-token"}`))
+		case "/dna/intent/api/v2/site":
+			if r.Header.Get("X-Auth-Token") != "test-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"response":[{"id":"site-1","name":"Building A"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	ds := NewDatasource()
+	sender := &mockResourceSender{}
+	req := &backend.CallResourceRequest{
+		Path: "sites",
+		PluginContext: backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+				UID:      "test-instance-sites",
+				JSONData: json.RawMessage(fmt.Sprintf(`{"baseUrl": %q}`, server.URL)),
+				DecryptedSecureJSONData: map[string]string{
+					"username": "user",
+					"password": "pass",
+				},
+			},
+		},
+	}
+
+	err := ds.CallResource(ctx, req, sender)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sender.resp == nil || sender.resp.Status != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %v", sender.resp)
+	}
+	if !strings.Contains(string(sender.resp.Body), "Building A") {
+		t.Fatalf("expected response body to contain Building A, got: %s", string(sender.resp.Body))
 	}
 }

@@ -12,14 +12,14 @@ func TestNormalizePriority(t *testing.T) {
 		want     string
 		ok       bool
 	}{
-		{"P1", "", "p1", true},
-		{"p2", "", "p2", true},
-		{"", "P3", "p3", true},
-		{"", "p4", "p4", true},
+		{"P1", "", "P1", true},
+		{"p2", "", "P2", true},
+		{"", "P3", "P3", true},
+		{"", "p4", "P4", true},
 		{"", "", "", false},
 		{"weird", "nope", "", false},
-		{"P1", "P2", "p1", true},  // Primary field (priority) wins
-		{"  p1  ", "", "p1", true},  // Test trimming
+		{"P1", "P2", "P1", true}, // Primary field (priority) wins
+		{"  p1  ", "", "P1", true}, // Test trimming
 	}
 	for _, tt := range tests {
 		got, ok := normalizePriority(tt.priority, tt.severity)
@@ -58,7 +58,7 @@ func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 		SiteID:          []string{"site-123"},
 		NetworkDeviceID: "dev-456",
 		MACAddress:      "00:11:22:33:44:55",
-		Priority:        []string{"p2"},
+		Priority:        []string{"P2"},
 		Status:          []string{"resolved"},
 	}
 
@@ -68,7 +68,7 @@ func TestBuildAssuranceParamsFromQuery(t *testing.T) {
 		"siteId":          []string{"site-123"},
 		"networkDeviceId": []string{"dev-456"},
 		"macAddress":      []string{"00:11:22:33:44:55"},
-		"priority":        []string{"p2"},
+		"priority":        []string{"P2"},
 		"status":          []string{"resolved"},
 		"limit":           []string{"100"},
 		"offset":          []string{"1"},
@@ -90,8 +90,8 @@ func TestBuildAssuranceParams_SkipEmpties(t *testing.T) {
 	if _, ok := params["priority"]; !ok {
 		t.Fatal("expected priority from severity")
 	}
-	if params.Get("priority") != "p3" {
-		t.Fatalf("priority = %q, want p3", params.Get("priority"))
+	if params.Get("priority") != "P3" {
+		t.Fatalf("priority = %q, want P3", params.Get("priority"))
 	}
 	if params.Get("limit") != "100" { // default page size
 		t.Fatalf("limit = %q, want 100", params.Get("limit"))
